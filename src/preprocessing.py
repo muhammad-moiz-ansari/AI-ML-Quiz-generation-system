@@ -3,6 +3,7 @@ import string
 import os
 import joblib
 from sklearn.feature_extraction.text import CountVectorizer
+import scipy.sparse
 
 # Define paths based on project structure
 RAW_DATA_DIR = "../data/raw/"
@@ -63,6 +64,10 @@ def main():
     # Note: binary=True forces One-Hot Encoding instead of word counts.
     vectorizer = CountVectorizer(binary=True, max_features=5000, stop_words='english')
     vectorizer.fit(corpus)
+
+    # Transform and save feature matrices for Model A/B training
+    train_features = vectorizer.transform(train_df['clean_article'] + ' ' + train_df['clean_question'])
+    scipy.sparse.save_npz(os.path.join(PROCESSED_DATA_DIR, 'train_features.npz'), train_features)
 
     # Save the trained encoder so Model A and Model B can transform text later
     joblib.dump(vectorizer, os.path.join(MODELS_DIR, 'onehot_encoder.pkl'))
