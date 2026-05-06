@@ -29,6 +29,7 @@ from sklearn.preprocessing import LabelEncoder
  
 # ── Paths ───────────────────────────────────────────────────────────────────
 is_local = False
+DO_FULL_TRAIN = True		# Set to True for full training
 
 BASE_DIR = r"/content/drive/MyDrive/Colab Notebooks/AI PROJECT/"
 
@@ -138,9 +139,9 @@ def train_logistic_regression(X_train, y_train):
     Learns a weight for each of the 5000 OHE features.
     C = regularisation strength (smaller → more regularised → simpler model).
     """
-    print("\n[1/4] Training Logistic Regression...")
+    print("\n[1/5] Training Logistic Regression...")
     t0  = time.time()
-    model = LogisticRegression(C=1.0, max_iter=1000, solver='lbfgs', random_state=42, n_jobs=-1)
+    model = LogisticRegression(C=1.0, class_weight='balanced', max_iter=1000, solver='lbfgs', random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
     print(f"  Trained in {time.time()-t0:.1f}s")
     return model
@@ -153,9 +154,9 @@ def train_svm(X_train, y_train):
     We wrap it in CalibratedClassifierCV so it can output probabilities
     C = regularisation
     """
-    print("\n[2/4] Training SVM (LinearSVC + Calibration)...")
+    print("\n[2/5] Training SVM (LinearSVC + Calibration)...")
     t0  = time.time()
-    base  = LinearSVC(C=0.1, max_iter=2000, random_state=42)
+    base  = LinearSVC(C=0.1, class_weight='balanced', max_iter=2000, random_state=42)
     model = CalibratedClassifierCV(base, cv=3)   # adds predict_proba
     model.fit(X_train, y_train)
     print(f"  Trained in {time.time()-t0:.1f}s")
@@ -169,7 +170,7 @@ def train_naive_bayes(X_train, y_train):
     BernoulliNB is designed for binary/boolean features
     alpha = Laplace smoothing
     """
-    print("\n[3/4] Training Bernoulli Naive Bayes...")
+    print("\n[3/5] Training Bernoulli Naive Bayes...")
     t0  = time.time()
     model = BernoulliNB(alpha=1.0)
     model.fit(X_train, y_train)
@@ -186,7 +187,7 @@ def train_kmeans(X_train, y_train):
     ----------------------------------
     K-Means does NOT use labels during training.
     """
-    print("\n[4/4] Training K-Means Clustering (Unsupervised)...")
+    print("\n[4/5] Training K-Means Clustering (Unsupervised)...")
  
     # Sparse matrices need special handling for KMeans
     # Convert a subsample to dense for speed (KMeans is slow on sparse rows)
@@ -235,7 +236,7 @@ def train_label_propagation(X_train, y_train):
     Uses a SMALL labeled set + a LARGE unlabeled set.
     Unlabeled examples are marked with label = -1.
     """
-    print("\n[5/4] Training Label Propagation (Semi-Supervised)...")
+    print("\n[5/5] Training Label Propagation (Semi-Supervised)...")
  
     rng     = np.random.RandomState(42)
     indices = rng.choice(X_train.shape[0], size=min(5000, X_train.shape[0]), replace=False)
@@ -355,13 +356,16 @@ def main():
     dev_df,   _          = load_data("dev")    # vectorizer already loaded
  
     # ── Build feature matrices ─────────────────────────────────────────────
-    # For quick testing, set max_rows=5000
-    # For full training,  set max_rows=None  (takes ~10-20 min)
-    print("\n>>> Expanding training set to verification pairs...")
-    X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=20000)
+    # Determine row limits based on DO_FULL_TRAIN flag
+    train_limit = None if DO_FULL_TRAIN else 20000
+    dev_limit   = None if DO_FULL_TRAIN else 5000
+    str_temp    = "Full dataset" if DO_FULL_TRAIN else "Small dataset"
+
+    print(f"\n>>> Expanding training set to verification pairs ({str_temp})...")
+    X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=train_limit)
  
     print("\n>>> Expanding dev set...")
-    X_dev,   y_dev   = expand_to_verification_pairs(dev_df,   vectorizer, max_rows=5000)
+    X_dev,   y_dev   = expand_to_verification_pairs(dev_df,   vectorizer, max_rows=dev_limit)
  
     # ── Train supervised models ────────────────────────────────────────────
     lr_model  = train_logistic_regression(X_train, y_train)
