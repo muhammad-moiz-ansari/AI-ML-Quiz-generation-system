@@ -1,0 +1,477 @@
+"""
+inference.py
+============
+Unified inference API for Model A and Model B.
+
+This is the ONLY file your Streamlit app needs to import.
+It loads all trained models once at startup and exposes
+clean functions for the UI to call.
+
+Usage in app.py (Streamlit):
+    from src.inference import verify_answer, generate_question, get_session_metrics
+
+Example:
+    result = verify_answer(
+        article  = "Pandas eat bamboo...",
+        question = "What do pandas eat?",
+        option   = "Bamboo"
+    )
+    print(result)
+    # {"correct": True, "confidence": 0.87, "latency_ms": 45, "model_used": "Ensemble"}
+"""
+
+import os
+import time
+import string
+import re
+import joblib
+import numpy as np
+
+# ── Paths — adjust if your folder structure differs ──────────────────────────
+MODELS_DIR_A    = "../models/model_a/traditional/"
+MODELS_DIR_B    = "../models/model_b/traditional/"
+ENCODER_PATH    = "../models/onehot_encoder.pkl"
+
+# ── Session log (stored in memory during app runtime) ────────────────────────
+# Each inference call appends a record here.
+# Screen 4 (Analytics Dashboard) reads from this list.
+SESSION_LOG = []
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  MODEL LOADING  (runs once when inference.py is first imported)
+# ════════════════════════════════════════════════════════════════════════════
+
+def _load_models():
+    """
+    Load all saved models and the vectorizer into memory.
+    Uses a dictionary so we can easily check what's available.
+
+    Returns
+    -------
+    dict with keys: 'vectorizer', 'ensemble', 'lr', 'svm', 'nb', 'kmeans'
+    """
+    models = {}
+
+    # Always need the vectorizer — crash loudly if missing
+    if not os.path.exists(ENCODER_PATH):
+        raise FileNotFoundError(
+            f"Vectorizer not found at {ENCODER_PATH}\n"
+            f"Run preprocessing.py first!"
+        )
+    models['vectorizer'] = joblib.load(ENCODER_PATH)
+    print("[inference] ✅ Vectorizer loaded")
+
+    # Model A — load each, warn if missing (don't crash)
+    model_a_files = {
+        'ensemble' : 'ensemble_model.pkl',
+        'lr'       : 'lr_model.pkl',
+        'svm'      : 'svm_model.pkl',
+        'nb'       : 'nb_model.pkl',
+        'kmeans'   : 'kmeans_model.pkl',
+    }
+
+    for key, filename in model_a_files.items():
+        path = os.path.join(MODELS_DIR_A, filename)
+        if os.path.exists(path):
+            models[key] = joblib.load(path)
+            print(f"[inference] ✅ Model A — {key} loaded")
+        else:
+            models[key] = None
+            print(f"[inference] ⚠️  Model A — {key} NOT FOUND (run model_a_train.py)")
+
+    # Model B — load distractor and hint models
+    model_b_files = {
+        'distractor_ranker' : 'distractor_ranker.pkl',
+        'hint_scorer'       : 'hint_scorer.pkl',
+    }
+
+    for key, filename in model_b_files.items():
+        path = os.path.join(MODELS_DIR_B, filename)
+        if os.path.exists(path):
+            models[key] = joblib.load(path)
+            print(f"[inference] ✅ Model B — {key} loaded")
+        else:
+            models[key] = None
+            print(f"[inference] ⚠️  Model B — {key} NOT FOUND (run model_b_train.py)")
+
+    return models
+
+
+# Load models at import time — this is the "warm up" step
+print("[inference] Loading models...")
+MODELS = _load_models()
+print("[inference] All available models ready.\n")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  HELPER FUNCTIONS  (internal — not called by UI directly)
+# ════════════════════════════════════════════════════════════════════════════
+
+STOPWORDS = {
+    'the','a','an','is','was','are','were','be','been','to','of',
+    'in','for','on','with','at','by','from','it','its','this',
+    'that','and','or','but','not','no','i','you','we','he','she','they'
+}
+
+def _clean(text):
+    """Lowercase and remove punctuation — same as preprocessing.py"""
+    if not isinstance(text, str):
+        return ""
+    text = text.lower()
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    return text
+
+
+def _vectorize(text):
+    """
+    Convert a raw text string into a One-Hot Encoded feature vector.
+    Returns a sparse matrix with shape (1, 5000).
+    """
+    cleaned = _clean(text)
+    return MODELS['vectorizer'].transform([cleaned])
+
+
+def _log_inference(record: dict):
+    """Append an inference record to the session log."""
+    record['timestamp'] = time.strftime("%H:%M:%S")
+    SESSION_LOG.append(record)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  PUBLIC FUNCTION 1 — verify_answer()
+#  Called by: Screen 2 (Quiz View) when user clicks "Check Answer"
+# ════════════════════════════════════════════════════════════════════════════
+
+def verify_answer(article: str, question: str, option: str) -> dict:
+    """
+    Predict whether a chosen answer option is correct.
+
+    Parameters
+    ----------
+    article  : str  — the full reading passage
+    question : str  — the multiple-choice question
+    option   : str  — the text of the option the user selected
+                      e.g. "Over 99%" not "A"
+
+    Returns
+    -------
+    dict with keys:
+        correct     : bool   — True if model thinks option is correct
+        confidence  : float  — probability of being correct (0.0 to 1.0)
+        latency_ms  : int    — how long inference took in milliseconds
+        model_used  : str    — which model made the prediction
+    """
+
+    t_start = time.time()
+
+    # ── Step 1: Build combined feature text ─────────────────────────────
+    # Same format as training: article + question + option
+    combined_text = (
+        _clean(article)  + ' ' +
+        _clean(question) + ' ' +
+        _clean(option)
+    )
+    X = MODELS['vectorizer'].transform([combined_text])
+
+    # ── Step 2: Pick best available model ────────────────────────────────
+    # Priority: ensemble → svm → lr → nb → fallback
+    if MODELS.get('ensemble') is not None:
+        model      = MODELS['ensemble']
+        model_name = "Soft-Vote Ensemble"
+    elif MODELS.get('svm') is not None:
+        model      = MODELS['svm']
+        model_name = "SVM"
+    elif MODELS.get('lr') is not None:
+        model      = MODELS['lr']
+        model_name = "Logistic Regression"
+    elif MODELS.get('nb') is not None:
+        model      = MODELS['nb']
+        model_name = "Naive Bayes"
+    else:
+        # No model available — return a safe fallback
+        return {
+            "correct"    : False,
+            "confidence" : 0.0,
+            "latency_ms" : 0,
+            "model_used" : "None (models not trained yet)",
+            "error"      : "No trained Model A found. Run model_a_train.py first."
+        }
+
+    # ── Step 3: Predict ──────────────────────────────────────────────────
+    # predict_proba returns [[prob_wrong, prob_correct]]
+    proba      = model.predict_proba(X)[0]   # shape: (2,)
+    confidence = float(proba[1])             # probability of label=1 (correct)
+    predicted  = confidence >= 0.5
+
+    latency_ms = int((time.time() - t_start) * 1000)
+
+    # ── Step 4: Log for analytics dashboard ──────────────────────────────
+    _log_inference({
+        "task"       : "verify_answer",
+        "question"   : question[:60] + "..." if len(question) > 60 else question,
+        "option"     : option,
+        "predicted"  : "Correct" if predicted else "Wrong",
+        "confidence" : round(confidence, 3),
+        "latency_ms" : latency_ms,
+        "model_used" : model_name,
+    })
+
+    return {
+        "correct"    : bool(predicted),
+        "confidence" : round(confidence, 3),
+        "latency_ms" : latency_ms,
+        "model_used" : model_name,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  PUBLIC FUNCTION 2 — generate_question()
+#  Called by: Screen 1 (Article Input) after user clicks "Generate Quiz"
+# ════════════════════════════════════════════════════════════════════════════
+
+def generate_question(article: str, gold_question: str = None,
+                      gold_options: dict = None, gold_answer: str = None) -> dict:
+    """
+    Generate a question from an article OR return the RACE gold question.
+
+    If this article came from the RACE dataset (gold_question provided),
+    we return the original RACE question + options directly.
+
+    If it's a custom pasted article, we apply template-based generation.
+
+    Parameters
+    ----------
+    article       : str  — the reading passage
+    gold_question : str  — original RACE question (optional)
+    gold_options  : dict — {'A': '...', 'B': '...', 'C': '...', 'D': '...'}
+    gold_answer   : str  — correct label 'A'/'B'/'C'/'D'
+
+    Returns
+    -------
+    dict with keys:
+        question      : str
+        options       : dict  {'A': str, 'B': str, 'C': str, 'D': str}
+        correct_label : str   'A'/'B'/'C'/'D'
+        correct_text  : str   text of the correct option
+        source        : str   'RACE original' or 'Template generated'
+    """
+
+    t_start = time.time()
+
+    # ── Case 1: RACE original question available ─────────────────────────
+    if gold_question and gold_options and gold_answer:
+        latency_ms = int((time.time() - t_start) * 1000)
+        _log_inference({
+            "task"       : "generate_question",
+            "source"     : "RACE original",
+            "latency_ms" : latency_ms,
+        })
+        return {
+            "question"      : gold_question,
+            "options"       : gold_options,
+            "correct_label" : gold_answer,
+            "correct_text"  : gold_options[gold_answer],
+            "source"        : "RACE original",
+        }
+
+    # ── Case 2: Custom article — generate question from scratch ──────────
+    generated = _template_generate(article)
+    latency_ms = int((time.time() - t_start) * 1000)
+
+    _log_inference({
+        "task"       : "generate_question",
+        "source"     : "Template generated",
+        "latency_ms" : latency_ms,
+    })
+
+    return generated
+
+
+def _template_generate(article: str) -> dict:
+    """
+    Template-Based Question Generation
+    ------------------------------------
+    Step 1 — Extract candidate sentences using keyword overlap.
+    Step 2 — Pick the best sentence as the "answer-bearing" sentence.
+    Step 3 — Apply a Wh-word template to form a question.
+    Step 4 — Extract a short phrase from the sentence as the correct answer.
+    Step 5 — Model B will generate distractors (called separately).
+
+    This is intentionally simple — rule-based, no ML needed here.
+    The ML part is the SVM ranker which scores question quality (in model_a_train.py).
+    """
+
+    sentences = re.split(r'(?<=[.!?])\s+', article.strip())
+    sentences = [s.strip() for s in sentences if len(s.split()) > 5]
+
+    if not sentences:
+        return _fallback_response()
+
+    # Score each sentence by length and position
+    # (longer central sentences tend to carry more information)
+    def score_sentence(sent, idx, total):
+        word_count   = len(sent.split())
+        length_score = min(word_count / 30, 1.0)        # prefer ~30 word sentences
+        pos_score    = 1 - abs((idx / total) - 0.3)     # prefer sentences near start
+        return length_score * 0.6 + pos_score * 0.4
+
+    scores    = [score_sentence(s, i, len(sentences)) for i, s in enumerate(sentences)]
+    best_idx  = int(np.argmax(scores))
+    best_sent = sentences[best_idx]
+
+    # Extract a short noun-phrase-like answer (first 3-5 meaningful words)
+    words         = [w for w in best_sent.split() if w.lower() not in STOPWORDS]
+    answer_phrase = ' '.join(words[:3]) if len(words) >= 3 else ' '.join(words)
+
+    # Apply Wh-word template
+    # Detect likely question type from content
+    sent_lower = best_sent.lower()
+    if any(w in sent_lower for w in ['because', 'reason', 'therefore', 'so that']):
+        wh = "Why"
+    elif any(w in sent_lower for w in ['when', 'year', 'day', 'time', 'century', 'age']):
+        wh = "When"
+    elif any(w in sent_lower for w in ['where', 'place', 'city', 'country', 'location']):
+        wh = "Where"
+    elif any(w in sent_lower for w in ['who', 'person', 'people', 'man', 'woman', 'he', 'she']):
+        wh = "Who"
+    else:
+        wh = "What"
+
+    # Build question by masking the answer phrase
+    question = re.sub(
+        re.escape(answer_phrase), "_____",
+        best_sent, count=1, flags=re.IGNORECASE
+    )
+    question = f"{wh} {question.strip()}?"
+    question = question[:120]   # cap length
+
+    # Placeholder options — Model B fills distractors (A, B, C)
+    # We put the real answer at D by default; Model B will shuffle
+    options = {
+        "A" : "[Distractor 1 — generated by Model B]",
+        "B" : "[Distractor 2 — generated by Model B]",
+        "C" : "[Distractor 3 — generated by Model B]",
+        "D" : answer_phrase,
+    }
+
+    return {
+        "question"      : question,
+        "options"       : options,
+        "correct_label" : "D",
+        "correct_text"  : answer_phrase,
+        "source"        : "Template generated",
+    }
+
+
+def _fallback_response():
+    return {
+        "question"      : "What is the main idea of the passage?",
+        "options"       : {"A": "Option A", "B": "Option B",
+                           "C": "Option C", "D": "Option D"},
+        "correct_label" : "A",
+        "correct_text"  : "Option A",
+        "source"        : "Fallback",
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  PUBLIC FUNCTION 3 — get_session_metrics()
+#  Called by: Screen 4 (Analytics Dashboard)
+# ════════════════════════════════════════════════════════════════════════════
+
+def get_session_metrics() -> dict:
+    """
+    Compute live metrics from the current session's inference log.
+
+    Returns
+    -------
+    dict with keys:
+        total_inferences  : int
+        avg_latency_ms    : float
+        session_log       : list of dicts (for the table in Screen 4)
+        model_a_stats     : dict  (accuracy, avg confidence)
+    """
+    if not SESSION_LOG:
+        return {
+            "total_inferences" : 0,
+            "avg_latency_ms"   : 0.0,
+            "session_log"      : [],
+            "model_a_stats"    : {"note": "No inferences yet"},
+        }
+
+    verify_records = [r for r in SESSION_LOG if r.get('task') == 'verify_answer']
+    all_latencies  = [r['latency_ms'] for r in SESSION_LOG if 'latency_ms' in r]
+
+    model_a_stats = {}
+    if verify_records:
+        confidences           = [r['confidence'] for r in verify_records]
+        model_a_stats['avg_confidence'] = round(float(np.mean(confidences)), 3)
+        model_a_stats['total_checks']   = len(verify_records)
+        model_a_stats['model_used']     = verify_records[-1].get('model_used', 'N/A')
+
+    return {
+        "total_inferences" : len(SESSION_LOG),
+        "avg_latency_ms"   : round(float(np.mean(all_latencies)), 1) if all_latencies else 0.0,
+        "session_log"      : SESSION_LOG[-20:],   # last 20 records
+        "model_a_stats"    : model_a_stats,
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  PUBLIC FUNCTION 4 — get_model_file_metrics()
+#  Called by: Screen 4 — loads saved training metrics from CSV
+# ════════════════════════════════════════════════════════════════════════════
+
+def get_model_file_metrics() -> dict:
+    """
+    Load the saved model comparison table from training.
+    Returns the results DataFrame as a list of dicts.
+    """
+    results_path = os.path.join(MODELS_DIR_A, 'model_a_results.csv')
+
+    if not os.path.exists(results_path):
+        return {"error": "model_a_results.csv not found. Run model_a_train.py first."}
+
+    import pandas as pd
+    df = pd.read_csv(results_path)
+    return {"model_a_results": df.to_dict(orient='records')}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  QUICK TEST  (run this file directly to check everything works)
+# ════════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    print("\n" + "="*55)
+    print("  inference.py — Quick Smoke Test")
+    print("="*55)
+
+    SAMPLE_ARTICLE = (
+        "The giant panda is a bear native to South Central China. "
+        "It is characterised by its bold black-and-white coat. "
+        "Though it belongs to the order Carnivora, the giant "
+        "panda's diet is over 99% bamboo."
+    )
+    SAMPLE_QUESTION = "What percentage of the giant panda's diet consists of bamboo?"
+
+    print("\n[TEST 1] verify_answer — correct option")
+    r1 = verify_answer(SAMPLE_ARTICLE, SAMPLE_QUESTION, "Over 99%")
+    print(f"  Result : {r1}")
+
+    print("\n[TEST 2] verify_answer — wrong option")
+    r2 = verify_answer(SAMPLE_ARTICLE, SAMPLE_QUESTION, "About 75%")
+    print(f"  Result : {r2}")
+
+    print("\n[TEST 3] generate_question — custom article")
+    r3 = generate_question(SAMPLE_ARTICLE)
+    print(f"  Question : {r3['question']}")
+    print(f"  Answer   : {r3['correct_text']}")
+    print(f"  Source   : {r3['source']}")
+
+    print("\n[TEST 4] get_session_metrics")
+    metrics = get_session_metrics()
+    print(f"  Total inferences : {metrics['total_inferences']}")
+    print(f"  Avg latency      : {metrics['avg_latency_ms']}ms")
+
+    print("\n✅ Smoke test complete!")

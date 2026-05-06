@@ -142,7 +142,6 @@ def train_logistic_regression(X_train, y_train):
     print("\n[1/5] Training Logistic Regression...")
     t0  = time.time()
     model = LogisticRegression(C=1.0, class_weight='balanced', max_iter=1000, solver='lbfgs', random_state=42, n_jobs=-1)
-    model = LogisticRegression(C=1.0, class_weight='balanced', max_iter=1000, solver='lbfgs', random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
     print(f"  Trained in {time.time()-t0:.1f}s")
     return model
@@ -157,7 +156,6 @@ def train_svm(X_train, y_train):
     """
     print("\n[2/5] Training SVM (LinearSVC + Calibration)...")
     t0  = time.time()
-    base  = LinearSVC(C=0.1, class_weight='balanced', max_iter=2000, random_state=42)
     base  = LinearSVC(C=0.1, class_weight='balanced', max_iter=2000, random_state=42)
     model = CalibratedClassifierCV(base, cv=3)   # adds predict_proba
     model.fit(X_train, y_train)
@@ -365,16 +363,8 @@ def main():
 
     print(f"\n>>> Expanding training set to verification pairs ({str_temp})...")
     X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=train_limit)
-    # Determine row limits based on DO_FULL_TRAIN flag
-    train_limit = None if DO_FULL_TRAIN else 20000
-    dev_limit   = None if DO_FULL_TRAIN else 5000
-    str_temp    = "Full dataset" if DO_FULL_TRAIN else "Small dataset"
-
-    print(f"\n>>> Expanding training set to verification pairs ({str_temp})...")
-    X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=train_limit)
  
     print("\n>>> Expanding dev set...")
-    X_dev,   y_dev   = expand_to_verification_pairs(dev_df,   vectorizer, max_rows=dev_limit)
     X_dev,   y_dev   = expand_to_verification_pairs(dev_df,   vectorizer, max_rows=dev_limit)
  
     # ── Train supervised models ────────────────────────────────────────────
