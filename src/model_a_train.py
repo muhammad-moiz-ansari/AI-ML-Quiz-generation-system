@@ -81,7 +81,98 @@ def expand_to_verification_pairs(df, vectorizer, max_rows=None):
     y = np.array(labels, dtype=int)
  
     print(f"  Expanded to {X.shape[0]:,} examples  |  features: {X.shape[1]:,}")
-    print(f"  Class balance — correct: {y.sum():,}  wrong: {(y==0).sum():,}")
+    print(f"  Class balance - correct: {y.sum():,}  wrong: {(y==0).sum():,}")
     return X, y
+ 
+
+
+# ── Evaluation Helpers ───────────────────────────────────────────────────────
+
+def plot_confusion_matrix(cm, model_name):
+    """Save a clean confusion matrix heatmap."""
+    fig, ax = plt.subplots(figsize=(5, 4))
+    im = ax.imshow(cm, cmap='Blues')
+    plt.colorbar(im, ax=ax)
+    ax.set_xticks([0, 1]); ax.set_yticks([0, 1])
+    ax.set_xticklabels(['Predicted Wrong', 'Predicted Correct'])
+    ax.set_yticklabels(['Actually Wrong',  'Actually Correct'])
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, str(cm[i, j]), ha='center', va='center',
+                    fontsize=14, color='white' if cm[i, j] > cm.max()/2 else 'black')
+    ax.set_title(f'Confusion Matrix - {model_name}', fontweight='bold')
+    plt.tight_layout()
+    path = os.path.join(PLOTS_DIR, f"cm_{model_name.lower().replace(' ','_')}.png")
+    plt.savefig(path, bbox_inches='tight')
+    plt.close()
+    print(f"  Confusion matrix saved → {path}")
+ 
+ 
+def evaluate(model, X_dev, y_dev, model_name):
+    """Print and return evaluation metrics."""
+    y_pred = model.predict(X_dev)
+    acc = accuracy_score(y_dev, y_pred)
+    f1_macro = f1_score(y_dev, y_pred, average='macro')
+    cm = confusion_matrix(y_dev, y_pred)
+ 
+    print(f"\n{'='*50}")
+    print(f"  {model_name}")
+    print(f"{'='*50}")
+    print(f"  Accuracy  : {acc:.4f}  ({acc*100:.2f}%)")
+    print(f"  Macro F1  : {f1_macro:.4f}")
+    print(classification_report(y_dev, y_pred,
+                                target_names=['Wrong', 'Correct']))
+    plot_confusion_matrix(cm, model_name)
+ 
+    return {"model": model_name, "accuracy": acc, "macro_f1": f1_macro}
+ 
+ 
+# ── SECTION 1: Supervised Models ─────────────────────────────────────────────
+ 
+def train_logistic_regression(X_train, y_train):
+    """
+    Logistic Regression
+    -------------------
+    Learns a weight for each of the 5000 OHE features.
+    C = regularisation strength (smaller → more regularised → simpler model).
+    """
+    print("\n[1/4] Training Logistic Regression...")
+    t0  = time.time()
+    model = LogisticRegression(C=1.0, max_iter=1000, solver='lbfgs', random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    print(f"  Trained in {time.time()-t0:.1f}s")
+    return model
+ 
+ 
+def train_svm(X_train, y_train):
+    """
+    Support Vector Machine (LinearSVC)
+    -----------------------------------
+    We wrap it in CalibratedClassifierCV so it can output probabilities
+    C = regularisation
+    """
+    print("\n[2/4] Training SVM (LinearSVC + Calibration)...")
+    t0  = time.time()
+    base  = LinearSVC(C=0.1, max_iter=2000, random_state=42)
+    model = CalibratedClassifierCV(base, cv=3)   # adds predict_proba
+    model.fit(X_train, y_train)
+    print(f"  Trained in {time.time()-t0:.1f}s")
+    return model
+ 
+ 
+def train_naive_bayes(X_train, y_train):
+    """
+    Bernoulli Naive Bayes
+    ----------------------
+    BernoulliNB is designed for binary/boolean features
+    alpha = Laplace smoothing
+    """
+    print("\n[3/4] Training Bernoulli Naive Bayes...")
+    t0  = time.time()
+    model = BernoulliNB(alpha=1.0)
+    model.fit(X_train, y_train)
+    print(f"  Trained in {time.time()-t0:.1f}s")
+    return model
+ 
  
  
