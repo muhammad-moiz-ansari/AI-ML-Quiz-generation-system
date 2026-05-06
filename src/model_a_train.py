@@ -7,6 +7,8 @@ Model A - Answer Verifier + Question Generator
 from scipy.stats import false_discovery_control
 import os
 import time
+import string
+import re
 import joblib
 import numpy as np
 import pandas as pd
@@ -291,3 +293,142 @@ def train_ensemble(lr_model, svm_model, nb_model, X_train, y_train):
     return ensemble
  
  
+
+# ── SECTION 5: Question Generator (Template-Based) ──────────────────────────
+ 
+def generate_question(article_text, correct_answer_text):
+    """
+    Template-Based Question Generation
+    ------------------------------------
+    This is a rule-based approach - no ML needed for the generator itself.
+    The ML ranker (SVM) scores question quality.
+    """
+ 
+    STOPWORDS = {'the','a','an','is','was','are','were','to','of',
+                 'in','for','on','with','at','by','from','it','its'}
+ 
+    def clean(text):
+        return text.lower().translate(str.maketrans('', '', string.punctuation))
+ 
+    # Get key words from the correct answer
+    answer_words = set(clean(correct_answer_text).split()) - STOPWORDS
+ 
+    # Split article into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', article_text)
+ 
+    best_sentence = None
+    best_overlap  = 0
+ 
+    for sent in sentences:
+        sent_words = set(clean(sent).split()) - STOPWORDS
+        overlap    = len(answer_words & sent_words)
+        if overlap > best_overlap:
+            best_overlap  = overlap
+            best_sentence = sent
+ 
+    if not best_sentence:
+        return "What is the main idea of the passage?"
+ 
+    # Apply simple Wh-word template
+    # Replace the answer phrase in the sentence with a blank, then prepend "What"
+    pattern  = re.compile(re.escape(correct_answer_text), re.IGNORECASE)
+    question = pattern.sub("_____", best_sentence)
+    question = "What " + question.strip().lstrip('The the A a').strip()
+ 
+    # Trim to reasonable length
+    if len(question.split()) > 20:
+        question = ' '.join(question.split()[:18]) + "?"
+ 
+    return question
+ 
+ 
+# ══ MAIN ═════════════════════════════════════════════════════════════════════
+ 
+def main():
+    print("=" * 60)
+    print("  MODEL A - Answer Verifier Training")
+    print("=" * 60)
+ 
+    # ── Load data ──────────────────────────────────────────────────────────
+    print("\n>>> Loading training data...")
+    train_df, vectorizer = load_data("train")
+    dev_df,   _          = load_data("dev")    # vectorizer already loaded
+ 
+    # ── Build feature matrices ─────────────────────────────────────────────
+    # For quick testing, set max_rows=5000
+    # For full training,  set max_rows=None  (takes ~10-20 min)
+    print("\n>>> Expanding training set to verification pairs...")
+    X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=20000)
+ 
+    print("\n>>> Expanding dev set...")
+    X_dev,   y_dev   = expand_to_verification_pairs(dev_df,   vectorizer, max_rows=5000)
+ 
+    # ── Train supervised models ────────────────────────────────────────────
+    lr_model  = train_logistic_regression(X_train, y_train)
+    svm_model = train_svm(X_train, y_train)
+    nb_model  = train_naive_bayes(X_train, y_train)
+ 
+    # ── Evaluate supervised models ─────────────────────────────────────────
+    print("\n>>> Evaluating on dev set...")
+    results = []
+    results.append(evaluate(lr_model,  X_dev, y_dev, "Logistic Regression"))
+    results.append(evaluate(svm_model, X_dev, y_dev, "SVM (LinearSVC)"))
+    results.append(evaluate(nb_model,  X_dev, y_dev, "Bernoulli Naive Bayes"))
+ 
+    # ── Unsupervised: K-Means ──────────────────────────────────────────────
+    print("\n>>> Running K-Means Clustering (Unsupervised)...")
+    kmeans_model, sil_score = train_kmeans(X_train, y_train)
+ 
+    # ── Semi-Supervised: Label Propagation ────────────────────────────────
+    lp_model = train_label_propagation(X_train, y_train)
+ 
+    # ── Ensemble ───────────────────────────────────────────────────────────
+    ensemble_model = train_ensemble(lr_model, svm_model, nb_model, X_train, y_train)
+    results.append(evaluate(ensemble_model, X_dev, y_dev, "Soft-Vote Ensemble"))
+ 
+    # ── Comparison table ───────────────────────────────────────────────────
+    print("\n" + "═" * 60)
+    print("  FINAL COMPARISON TABLE")
+    print("═" * 60)
+    results_df = pd.DataFrame(results)
+    results_df['accuracy'] = results_df['accuracy'].map('{:.4f}'.format)
+    results_df['macro_f1'] = results_df['macro_f1'].map('{:.4f}'.format)
+    print(results_df.to_string(index=False))
+    print(f"\n  K-Means Silhouette Score : {sil_score:.4f}")
+    results_df.to_csv(os.path.join(MODELS_DIR, 'model_a_results.csv'), index=False)
+ 
+    # ── Save all models ────────────────────────────────────────────────────
+    print("\n>>> Saving models to", MODELS_DIR)
+    joblib.dump(lr_model,       os.path.join(MODELS_DIR, 'lr_model.pkl'))
+    joblib.dump(svm_model,      os.path.join(MODELS_DIR, 'svm_model.pkl'))
+    joblib.dump(nb_model,       os.path.join(MODELS_DIR, 'nb_model.pkl'))
+    joblib.dump(kmeans_model,   os.path.join(MODELS_DIR, 'kmeans_model.pkl'))
+    joblib.dump(lp_model,       os.path.join(MODELS_DIR, 'lp_model.pkl'))
+    joblib.dump(ensemble_model, os.path.join(MODELS_DIR, 'ensemble_model.pkl'))
+    print("All models saved successfully!")
+ 
+    # ── Bar chart comparison ───────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(9, 4))
+    models  = [r['model'] for r in results]
+    accs    = [float(r['accuracy']) for r in results]
+    f1s     = [float(r['macro_f1']) for r in results]
+    x       = np.arange(len(models))
+    width   = 0.35
+    ax.bar(x - width/2, accs, width, label='Accuracy', color='#4C72B0', alpha=0.85)
+    ax.bar(x + width/2, f1s,  width, label='Macro F1',  color='#DD8452', alpha=0.85)
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, rotation=15, ha='right')
+    ax.set_ylim(0, 1)
+    ax.set_ylabel('Score')
+    ax.set_title('Model A - Supervised Model Comparison', fontweight='bold')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(PLOTS_DIR, 'model_a_comparison.png'), bbox_inches='tight')
+    plt.close()
+    print("Comparison chart saved!")
+ 
+    print("\n✅ Model A training complete!")
+ 
+ 
+if __name__ == "__main__":
+    main()
