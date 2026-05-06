@@ -176,3 +176,118 @@ def train_naive_bayes(X_train, y_train):
  
  
  
+# ── SECTION 2: Unsupervised - K-Means ────────────────────────────
+ 
+def train_kmeans(X_train, y_train):
+    """
+    K-Means Clustering (Unsupervised)
+    ----------------------------------
+    K-Means does NOT use labels during training.
+    """
+    print("\n[4/4] Training K-Means Clustering (Unsupervised)...")
+ 
+    # Sparse matrices need special handling for KMeans
+    # Convert a subsample to dense for speed (KMeans is slow on sparse rows)
+    print("  Subsampling 20,000 examples for K-Means (memory efficient)...")
+ 
+    # Random subsample
+    rng = np.random.RandomState(42)
+    indices = rng.choice(X_train.shape[0], size=min(20000, X_train.shape[0]), replace=False)
+    X_sub = X_train[indices].toarray()   # convert sparse → dense for KMeans
+    y_sub = y_train[indices]
+ 
+    t0 = time.time()
+    kmeans = KMeans(n_clusters=2, random_state=42, n_init=10, max_iter=300)
+    kmeans.fit(X_sub)
+    print(f"  Trained in {time.time()-t0:.1f}s")
+ 
+    # -- Evaluate clustering --------------------------------------------------
+    labels_pred = kmeans.labels_
+ 
+    # Silhouette score (expensive on large arrays - use subsample of 3000)
+    sil_idx = rng.choice(len(X_sub), size=min(3000, len(X_sub)), replace=False)
+    sil_score = silhouette_score(X_sub[sil_idx], labels_pred[sil_idx])
+    print(f"\n  Silhouette Score : {sil_score:.4f}  (range: -1 to 1, higher is better)")
+ 
+    # Cluster purity
+    for cluster_id in [0, 1]:
+        mask = labels_pred == cluster_id
+        cluster_y = y_sub[mask]
+        if len(cluster_y) == 0:
+            continue
+        majority = cluster_y.mean()   # fraction that are "correct" (label=1)
+        purity = max(majority, 1 - majority)
+        print(f"  Cluster {cluster_id}: {mask.sum():,} samples  |  "
+              f"purity={purity:.3f}  |  "
+              f"{'mostly CORRECT answers' if majority > 0.5 else 'mostly WRONG answers'}")
+ 
+    return kmeans, sil_score
+ 
+ 
+# ── SECTION 3: Semi-Supervised - Label Propagation ──────────────────────────
+ 
+def train_label_propagation(X_train, y_train):
+    """
+    Label Propagation (Semi-Supervised)
+    -------------------------------------
+    Uses a SMALL labeled set + a LARGE unlabeled set.
+    Unlabeled examples are marked with label = -1.
+    """
+    print("\n[5/4] Training Label Propagation (Semi-Supervised)...")
+ 
+    rng     = np.random.RandomState(42)
+    indices = rng.choice(X_train.shape[0], size=min(5000, X_train.shape[0]), replace=False)
+    X_sub   = X_train[indices].toarray()
+    y_sub   = y_train[indices].copy()
+ 
+    # Mask 80% of labels → pretend they're unlabeled
+    mask_unlabeled         = rng.rand(len(y_sub)) < 0.80
+    y_semi                 = y_sub.copy()
+    y_semi[mask_unlabeled] = -1     # -1 = unlabeled in sklearn
+ 
+    t0 = time.time()
+    lp = LabelPropagation(kernel='knn', n_neighbors=7, max_iter=1000)
+    lp.fit(X_sub, y_semi)
+    print(f"  Trained in {time.time()-t0:.1f}s")
+ 
+    # Evaluate only on the samples that were originally labeled
+    labeled_mask = ~mask_unlabeled
+    y_true_lp = y_sub[labeled_mask]
+    y_pred_lp = lp.predict(X_sub[labeled_mask])
+ 
+    acc_lp = accuracy_score(y_true_lp, y_pred_lp)
+    f1_lp = f1_score(y_true_lp, y_pred_lp, average='macro')
+    print(f"  Label Propagation Accuracy : {acc_lp:.4f}")
+    print(f"  Label Propagation Macro F1 : {f1_lp:.4f}")
+ 
+    return lp
+ 
+ 
+# ── SECTION 4: Ensemble ──────────────────────────────────────────────────────
+ 
+def train_ensemble(lr_model, svm_model, nb_model, X_train, y_train):
+    """
+    Soft-Vote Ensemble
+    -------------------
+    Averages the predict_proba() output of all 3 classifiers.
+    """
+    print("\n[ENSEMBLE] Building Soft-Vote Ensemble (LR + SVM + NB)...")
+ 
+    ensemble = VotingClassifier(
+        estimators=[
+            ('lr',  lr_model),
+            ('svm', svm_model),
+            ('nb',  nb_model),
+        ],
+        voting='soft',      # use predicted probabilities
+        weights=[1, 1, 1],  # equal weight - can tune later
+    )
+ 
+    # VotingClassifier needs to re-fit. We pass X_train again.
+    # This is fast because it just wraps already-fitted estimators.
+    t0 = time.time()
+    ensemble.fit(X_train, y_train)
+    print(f"  Ensemble built in {time.time()-t0:.1f}s")
+    return ensemble
+ 
+ 
