@@ -7,32 +7,36 @@
 
 /* ── Root Variables ──────────────────────────────── */
 :root {
-    --neon-purple:    #9B5DE5;
-    --neon-blue:      #4CC9F0;
-    --neon-pink:      #F72585;
-    --neon-green:     #06D6A0;
-    --neon-yellow:    #FFD60A;
-    --bg-void:        #050510;
-    --bg-deep:        #080818;
-    --bg-card:        #0E0E28;
-    --bg-card-hover:  #131335;
-    --bg-input:       #0A0A20;
-    --border-dim:     rgba(155, 93, 229, 0.15);
-    --border-glow:    rgba(155, 93, 229, 0.5);
-    --border-hot:     rgba(76, 201, 240, 0.6);
-    --text-bright:    #F0F0FF;
-    --text-mid:       #A0A0C0;
-    --text-dim:       #50507A;
-    --glow-purple:    0 0 20px rgba(155, 93, 229, 0.4);
-    --glow-blue:      0 0 20px rgba(76, 201, 240, 0.4);
-    --glow-pink:      0 0 20px rgba(247, 37, 133, 0.4);
-    --glow-green:     0 0 20px rgba(6, 214, 160, 0.4);
+    --neon-purple: #9B5DE5;
+    --neon-blue: #4CC9F0;
+    --neon-pink: #F72585;
+    --neon-green: #06D6A0;
+    --neon-yellow: #FFD60A;
+    --bg-void: #050510;
+    --bg-deep: #080818;
+    --bg-card: #0E0E28;
+    --bg-card-hover: #131335;
+    --bg-input: #0A0A20;
+    --border-dim: rgba(155, 93, 229, 0.15);
+    --border-glow: rgba(155, 93, 229, 0.5);
+    --border-hot: rgba(76, 201, 240, 0.6);
+    --text-bright: #F0F0FF;
+    --text-mid: #A0A0C0;
+    --text-dim: #50507A;
+    --glow-purple: 0 0 20px rgba(155, 93, 229, 0.4);
+    --glow-blue: 0 0 20px rgba(76, 201, 240, 0.4);
+    --glow-pink: 0 0 20px rgba(247, 37, 133, 0.4);
+    --glow-green: 0 0 20px rgba(6, 214, 160, 0.4);
 }
 
 /* ── Global Reset ────────────────────────────────── */
-* { box-sizing: border-box; }
+* {
+    box-sizing: border-box;
+}
 
-html, body, [data-testid="stAppViewContainer"] {
+html,
+body,
+[data-testid="stAppViewContainer"] {
     background: var(--bg-void) !important;
     color: var(--text-bright) !important;
     font-family: 'Rajdhani', sans-serif !important;
@@ -44,8 +48,8 @@ html, body, [data-testid="stAppViewContainer"] {
     position: fixed;
     inset: 0;
     background-image:
-        linear-gradient(rgba(155,93,229,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(155,93,229,0.04) 1px, transparent 1px);
+        linear-gradient(rgba(155, 93, 229, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(155, 93, 229, 0.04) 1px, transparent 1px);
     background-size: 40px 40px;
     pointer-events: none;
     z-index: 0;
@@ -55,9 +59,11 @@ html, body, [data-testid="stAppViewContainer"] {
 [data-testid="stAppViewContainer"]::after {
     content: '';
     position: fixed;
-    width: 600px; height: 600px;
-    background: radial-gradient(circle, rgba(155,93,229,0.06) 0%, transparent 70%);
-    top: -200px; right: -200px;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(155, 93, 229, 0.06) 0%, transparent 70%);
+    top: -200px;
+    right: -200px;
     pointer-events: none;
     z-index: 0;
 }
@@ -73,12 +79,17 @@ html, body, [data-testid="stAppViewContainer"] {
     background: var(--bg-deep) !important;
     border-right: 1px solid var(--border-dim) !important;
     padding-top: 0 !important;
+    display: block !important;
+    visibility: visible !important;
+    width: 250px;
 }
 
 [data-testid="stSidebar"]::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0;
+    top: 0;
+    left: 0;
+    right: 0;
     height: 2px;
     background: linear-gradient(90deg, var(--neon-purple), var(--neon-blue), var(--neon-pink));
     box-shadow: 0 0 12px rgba(155, 93, 229, 0.6);
@@ -149,7 +160,9 @@ html, body, [data-testid="stAppViewContainer"] {
 .neon-card::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0;
+    top: 0;
+    left: 0;
+    right: 0;
     height: 1px;
     background: linear-gradient(90deg, transparent, var(--neon-purple), transparent);
     opacity: 0.6;
@@ -163,9 +176,11 @@ html, body, [data-testid="stAppViewContainer"] {
 .neon-card-blue {
     border-color: rgba(76, 201, 240, 0.2);
 }
+
 .neon-card-blue::before {
     background: linear-gradient(90deg, transparent, var(--neon-blue), transparent);
 }
+
 .neon-card-blue:hover {
     border-color: var(--border-hot);
     box-shadow: var(--glow-blue);
@@ -174,6 +189,7 @@ html, body, [data-testid="stAppViewContainer"] {
 .neon-card-green {
     border-color: rgba(6, 214, 160, 0.2);
 }
+
 .neon-card-pink {
     border-color: rgba(247, 37, 133, 0.2);
 }
@@ -199,7 +215,9 @@ html, body, [data-testid="stAppViewContainer"] {
 .metric-card::after {
     content: '';
     position: absolute;
-    bottom: 0; left: 0; right: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
     height: 2px;
     background: linear-gradient(90deg, var(--neon-purple), var(--neon-blue));
 }
@@ -288,7 +306,8 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 
 .option-key {
-    width: 28px; height: 28px;
+    width: 28px;
+    height: 28px;
     border-radius: 6px;
     background: rgba(155, 93, 229, 0.2);
     border: 1px solid var(--border-glow);
@@ -455,8 +474,8 @@ textarea:focus {
 }
 
 /* Primary buttons */
-.stButton > button[kind="primary"],
-.stButton > button {
+.stButton>button[kind="primary"],
+.stButton>button {
     background: linear-gradient(135deg, var(--neon-purple), #6D28D9) !important;
     color: white !important;
     border: none !important;
@@ -470,12 +489,12 @@ textarea:focus {
     box-shadow: 0 0 15px rgba(155, 93, 229, 0.3) !important;
 }
 
-.stButton > button:hover {
+.stButton>button:hover {
     transform: translateY(-1px) !important;
     box-shadow: 0 0 25px rgba(155, 93, 229, 0.5) !important;
 }
 
-.stButton > button:active {
+.stButton>button:active {
     transform: translateY(0) !important;
 }
 
@@ -536,7 +555,8 @@ textarea:focus {
 }
 
 .status-dot {
-    width: 6px; height: 6px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--neon-green);
     box-shadow: 0 0 6px var(--neon-green);
@@ -544,8 +564,15 @@ textarea:focus {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.3; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
 }
 
 /* Progress bar */
@@ -566,9 +593,17 @@ textarea:focus {
 }
 
 /* Confidence bar colors */
-.conf-high  { background: linear-gradient(90deg, var(--neon-green), #00FF88); }
-.conf-mid   { background: linear-gradient(90deg, var(--neon-yellow), #FFAA00); }
-.conf-low   { background: linear-gradient(90deg, var(--neon-pink), #FF0066); }
+.conf-high {
+    background: linear-gradient(90deg, var(--neon-green), #00FF88);
+}
+
+.conf-mid {
+    background: linear-gradient(90deg, var(--neon-yellow), #FFAA00);
+}
+
+.conf-low {
+    background: linear-gradient(90deg, var(--neon-pink), #FF0066);
+}
 
 /* Divider */
 .neon-divider {
@@ -590,17 +625,60 @@ textarea:focus {
 }
 
 /* Remove streamlit default padding weirdness */
-[data-testid="stVerticalBlock"] { gap: 0 !important; }
-.block-container { padding: 2rem 2rem 4rem !important; max-width: 900px !important; }
+[data-testid="stVerticalBlock"] {
+    gap: 0 !important;
+}
 
-/* Hide streamlit branding */
-#MainMenu, footer, header { visibility: hidden; }
+.block-container {
+    padding: 2rem 2rem 4rem !important;
+    max-width: 900px !important;
+}
+
+/* Hide streamlit branding but KEEP header for the sidebar button */
+#MainMenu,
+footer {
+    visibility: hidden;
+}
+
+/* Make header transparent so it doesn't block the neon theme */
+header {
+    background: transparent !important;
+}
+
+/* Hide the default top-right deploy/menu buttons for a clean look */
+[data-testid="stHeaderActionElements"] {
+    display: none !important;
+}
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-void); }
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-void);
+}
+
 ::-webkit-scrollbar-thumb {
     background: var(--neon-purple);
     border-radius: 3px;
     box-shadow: var(--glow-purple);
+}
+
+/* ── Sidebar Expand Button Fix ── */
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    position: fixed !important;
+    top: 10px !important;
+    left: 0 !important;
+    color: var(--neon-blue) !important;
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--neon-blue) !important;
+    border-radius: 5px !important;
+    z-index: 999999 !important;
+    margin: 10px !important;
+}
+
+[data-testid="collapsedControl"]:hover {
+    box-shadow: 0 0 10px var(--neon-blue) !important;
 }

@@ -28,9 +28,12 @@ import joblib
 import numpy as np
 
 # ── Paths — adjust if your folder structure differs ──────────────────────────
-MODELS_DIR_A    = "../models/model_a/traditional/"
-MODELS_DIR_B    = "../models/model_b/traditional/"
-ENCODER_PATH    = "../models/onehot_encoder.pkl"
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(SRC_DIR, ".."))
+
+MODELS_DIR_A    = os.path.join(ROOT_DIR, "models", "model_a", "traditional")
+MODELS_DIR_B    = os.path.join(ROOT_DIR, "models", "model_b", "traditional")
+ENCODER_PATH    = os.path.join(ROOT_DIR, "models", "onehot_encoder.pkl")
 
 # ── Session log (stored in memory during app runtime) ────────────────────────
 # Each inference call appends a record here.
@@ -60,7 +63,7 @@ def _load_models():
             f"Run preprocessing.py first!"
         )
     models['vectorizer'] = joblib.load(ENCODER_PATH)
-    print("[inference] ✅ Vectorizer loaded")
+    print("[inference] [SUCCESS] Vectorizer loaded")
 
     # Model A — load each, warn if missing (don't crash)
     model_a_files = {
@@ -75,10 +78,10 @@ def _load_models():
         path = os.path.join(MODELS_DIR_A, filename)
         if os.path.exists(path):
             models[key] = joblib.load(path)
-            print(f"[inference] ✅ Model A — {key} loaded")
+            print(f"[inference] [SUCCESS] Model A — {key} loaded")
         else:
             models[key] = None
-            print(f"[inference] ⚠️  Model A — {key} NOT FOUND (run model_a_train.py)")
+            print(f"[inference] [WARNING]  Model A — {key} NOT FOUND (run model_a_train.py)")
 
     # Model B — load distractor and hint models
     model_b_files = {
@@ -90,10 +93,10 @@ def _load_models():
         path = os.path.join(MODELS_DIR_B, filename)
         if os.path.exists(path):
             models[key] = joblib.load(path)
-            print(f"[inference] ✅ Model B — {key} loaded")
+            print(f"[inference] [SUCCESS] Model B — {key} loaded")
         else:
             models[key] = None
-            print(f"[inference] ⚠️  Model B — {key} NOT FOUND (run model_b_train.py)")
+            print(f"[inference] [WARNING]  Model B — {key} NOT FOUND (run model_b_train.py)")
 
     return models
 
@@ -474,4 +477,4 @@ if __name__ == "__main__":
     print(f"  Total inferences : {metrics['total_inferences']}")
     print(f"  Avg latency      : {metrics['avg_latency_ms']}ms")
 
-    print("\n✅ Smoke test complete!")
+    print("\n[SUCCESS] Smoke test complete!")

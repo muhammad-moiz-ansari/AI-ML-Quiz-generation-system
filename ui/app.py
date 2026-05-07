@@ -13,13 +13,13 @@ sys.path.append(root_dir)
 from src.inference import verify_answer, generate_question, get_session_metrics
 
 # Page config MUST be the very first Streamlit command
-st.set_page_config(page_title="Neon AI | Reading Comprehension", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="AI Reading Comprehension System", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 # Load Custom Neon CSS
 def load_css():
     css_path = os.path.join(current_dir, 'style.css')
     if os.path.exists(css_path):
-        with open(css_path) as f:
+        with open(css_path, encoding='utf-8') as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     else:
         st.warning("⚠️ `style.css` not found in the `ui/` folder. Neon theme might not apply fully.")
