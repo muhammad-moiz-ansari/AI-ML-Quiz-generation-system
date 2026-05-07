@@ -10,7 +10,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir    = os.path.abspath(os.path.join(current_dir, '..'))
 sys.path.append(root_dir)
 
-from src.inference import verify_answer, generate_question, get_session_metrics
+from src.inference import verify_answer, generate_question, get_session_metrics, get_hints
 
 # Page config MUST be the very first Streamlit command
 st.set_page_config(page_title="AI Reading Comprehension System", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
@@ -144,16 +144,24 @@ elif page == "3. 💡 Hint Explorer":
         st.markdown("### Why was your answer wrong?")
         st.write(f"**Your Choice:** {st.session_state.last_selected}")
         
-        # Simulated Model B Output (Since Model B isn't fully in inference.py yet)
-        # You will connect your partner's actual Model B Hint function here later!
-        st.markdown(
-            """
-            <div class='info-box' style='border-color: var(--neon-pink); color: #E2E8F0;'>
-                <strong style='color: var(--neon-pink);'>Model B Analysis:</strong><br><br>
-                This is a <em>Plausible Distractor</em>. It uses words found in the text to trick you, 
-                but it alters the core meaning. Look closely at the context of the sentence in the passage again.
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
+        st.markdown("### 🧠 Graduated AI Hints")
+        st.caption("Model B has analyzed the passage and extracted these clues to help you find the correct answer.")
+
+        with st.spinner("Model B is generating hints..."):
+            # Call the real Model B!
+            hints = get_hints(st.session_state.article, st.session_state.quiz_data['question'])
+            time.sleep(0.5) # Quick visual pause
+            
+        # Display the 3 hints in collapsible boxes
+        with st.expander("💡 Hint 1 (Vague Context)"):
+            st.info(hints)
+            
+        with st.expander("🔍 Hint 2 (Stronger Clue)"):
+            st.warning(hints[1])
+            
+        with st.expander("🎯 Hint 3 (Explicit Passage Extract)"):
+            st.error(hints[2])
 
 # ════════════════════════════════════════════════════════════
 # SCREEN 4: ANALYTICS DASHBOARD
@@ -190,7 +198,7 @@ elif page == "4. 📊 Analytics Dashboard":
     
     # Model Training Plots (From your EDA/Training)
     st.subheader("Model Training Insights")
-    st.markdown("These plots were generated during the AI training phase on the FAST-NUCES server.")
+    st.markdown("These plots were generated during the AI training phase on the COLAB server.")
     
     plot_col1, plot_col2 = st.columns(2)
     
