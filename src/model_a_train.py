@@ -292,55 +292,7 @@ def train_ensemble(lr_model, svm_model, nb_model, X_train, y_train):
     ensemble.fit(X_train, y_train)
     print(f"  Ensemble built in {time.time()-t0:.1f}s")
     return ensemble
- 
- 
 
-# ── SECTION 5: Question Generator (Template-Based) ──────────────────────────
- 
-def generate_question(article_text, correct_answer_text):
-    """
-    Template-Based Question Generation
-    ------------------------------------
-    This is a rule-based approach - no ML needed for the generator itself.
-    The ML ranker (SVM) scores question quality.
-    """
- 
-    STOPWORDS = {'the','a','an','is','was','are','were','to','of',
-                 'in','for','on','with','at','by','from','it','its'}
- 
-    def clean(text):
-        return text.lower().translate(str.maketrans('', '', string.punctuation))
- 
-    # Get key words from the correct answer
-    answer_words = set(clean(correct_answer_text).split()) - STOPWORDS
- 
-    # Split article into sentences
-    sentences = re.split(r'(?<=[.!?])\s+', article_text)
- 
-    best_sentence = None
-    best_overlap  = 0
- 
-    for sent in sentences:
-        sent_words = set(clean(sent).split()) - STOPWORDS
-        overlap    = len(answer_words & sent_words)
-        if overlap > best_overlap:
-            best_overlap  = overlap
-            best_sentence = sent
- 
-    if not best_sentence:
-        return "What is the main idea of the passage?"
- 
-    # Apply simple Wh-word template
-    # Replace the answer phrase in the sentence with a blank, then prepend "What"
-    pattern  = re.compile(re.escape(correct_answer_text), re.IGNORECASE)
-    question = pattern.sub("_____", best_sentence)
-    question = "What " + question.strip().lstrip('The the A a').strip()
- 
-    # Trim to reasonable length
-    if len(question.split()) > 20:
-        question = ' '.join(question.split()[:18]) + "?"
- 
-    return question
  
  
 # ══ MAIN ═════════════════════════════════════════════════════════════════════

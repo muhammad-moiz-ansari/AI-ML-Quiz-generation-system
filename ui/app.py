@@ -106,29 +106,31 @@ elif page == "2. 🎯 Take Quiz":
             if selected_option is None:
                 st.error("Please select an answer first!")
             else:
-                with st.spinner("Verifying with Model A Ensemble..."):
-                    # Call inference.py verify_answer
-                    result = verify_answer(
+                with st.spinner("Verifying with AI..."):
+                    # Call inference.py verify_answer (The ML Guess)
+                    res = verify_answer(
                         article=st.session_state.article,
                         question=quiz['question'],
                         option=selected_option
                     )
-                    st.session_state.last_result = result
+                    st.session_state.last_result = res
                     st.session_state.last_selected = selected_option
-        
-        # Display Results if answered
-        if st.session_state.last_result:
-            res = st.session_state.last_result
-            st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
-            
-            if res['correct']:
-                st.balloons()
-                st.success(f"🎉 CORRECT! Model Confidence: {res['confidence']*100:.1f}%")
-            else:
-                st.error(f"❌ INCORRECT! Model Confidence that this is correct: {res['confidence']*100:.1f}%")
-                st.info("💡 Tip: Go to the 'Hint Explorer' tab to see why this distractor tricked you!")
-            
-            st.caption(f"Inference Latency: {res['latency_ms']}ms | AI Verifier: {res['model_used']}")
+                    
+                    st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
+                    
+                    # ── THE REAL GRADING LOGIC ──
+                    is_actually_correct = (selected_option == quiz['correct_text'])
+                    
+                    if is_actually_correct:
+                        st.balloons()
+                        st.success("🎉 CORRECT!")
+                    else:
+                        st.error("❌ INCORRECT!")
+                        st.info("💡 Tip: Go to the 'Hint Explorer' tab to see why!")
+                    
+                    # ── WHAT THE AI THOUGHT ──
+                    ai_guess = "Correct" if res['correct'] else "Wrong"
+                    st.caption(f"🤖 **Model A's Guess:** {ai_guess} (Confidence: {res['confidence']*100:.1f}%) | Latency: {res['latency_ms']}ms")
 
 # ════════════════════════════════════════════════════════════
 # SCREEN 3: HINT EXPLORER (Model B Integration)
