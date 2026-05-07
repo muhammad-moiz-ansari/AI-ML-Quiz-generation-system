@@ -363,6 +363,14 @@ def main():
 
     print(f"\n>>> Expanding training set to verification pairs ({str_temp})...")
     X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=train_limit)
+
+    # Determine row limits based on DO_FULL_TRAIN flag
+    train_limit = None if DO_FULL_TRAIN else 20000
+    dev_limit   = None if DO_FULL_TRAIN else 5000
+    str_temp    = "Full dataset" if DO_FULL_TRAIN else "Small dataset"
+
+    print(f"\n>>> Expanding training set to verification pairs ({str_temp})...")
+    X_train, y_train = expand_to_verification_pairs(train_df, vectorizer, max_rows=train_limit)
  
     print("\n>>> Expanding dev set...")
     X_dev,   y_dev   = expand_to_verification_pairs(dev_df,   vectorizer, max_rows=dev_limit)

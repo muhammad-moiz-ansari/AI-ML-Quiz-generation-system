@@ -1,0 +1,606 @@
+/* ═══════════════════════════════════════════════
+   QuizGen AI — Dark Neon Theme
+   Deep space blue-purple with electric accents
+   ═══════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap');
+
+/* ── Root Variables ──────────────────────────────── */
+:root {
+    --neon-purple:    #9B5DE5;
+    --neon-blue:      #4CC9F0;
+    --neon-pink:      #F72585;
+    --neon-green:     #06D6A0;
+    --neon-yellow:    #FFD60A;
+    --bg-void:        #050510;
+    --bg-deep:        #080818;
+    --bg-card:        #0E0E28;
+    --bg-card-hover:  #131335;
+    --bg-input:       #0A0A20;
+    --border-dim:     rgba(155, 93, 229, 0.15);
+    --border-glow:    rgba(155, 93, 229, 0.5);
+    --border-hot:     rgba(76, 201, 240, 0.6);
+    --text-bright:    #F0F0FF;
+    --text-mid:       #A0A0C0;
+    --text-dim:       #50507A;
+    --glow-purple:    0 0 20px rgba(155, 93, 229, 0.4);
+    --glow-blue:      0 0 20px rgba(76, 201, 240, 0.4);
+    --glow-pink:      0 0 20px rgba(247, 37, 133, 0.4);
+    --glow-green:     0 0 20px rgba(6, 214, 160, 0.4);
+}
+
+/* ── Global Reset ────────────────────────────────── */
+* { box-sizing: border-box; }
+
+html, body, [data-testid="stAppViewContainer"] {
+    background: var(--bg-void) !important;
+    color: var(--text-bright) !important;
+    font-family: 'Rajdhani', sans-serif !important;
+}
+
+/* Animated grid background */
+[data-testid="stAppViewContainer"]::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(155,93,229,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(155,93,229,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Ambient glow orbs */
+[data-testid="stAppViewContainer"]::after {
+    content: '';
+    position: fixed;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(155,93,229,0.06) 0%, transparent 70%);
+    top: -200px; right: -200px;
+    pointer-events: none;
+    z-index: 0;
+}
+
+[data-testid="stMain"] {
+    background: transparent !important;
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Sidebar ─────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background: var(--bg-deep) !important;
+    border-right: 1px solid var(--border-dim) !important;
+    padding-top: 0 !important;
+}
+
+[data-testid="stSidebar"]::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--neon-purple), var(--neon-blue), var(--neon-pink));
+    box-shadow: 0 0 12px rgba(155, 93, 229, 0.6);
+}
+
+[data-testid="stSidebarContent"] {
+    padding: 1.5rem 1rem !important;
+}
+
+/* ── App Header / Logo Area ──────────────────────── */
+.app-logo {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.4rem;
+    font-weight: 900;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, var(--neon-purple), var(--neon-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+    margin-bottom: 0.2rem;
+}
+
+.app-tagline {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+}
+
+/* ── Screen Title ────────────────────────────────── */
+.screen-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--neon-blue);
+    text-shadow: var(--glow-blue);
+    margin-bottom: 0.3rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border-dim);
+}
+
+.screen-sub {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    margin-bottom: 1.5rem;
+}
+
+/* ── Cards ───────────────────────────────────────── */
+.neon-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 12px;
+    padding: 1.4rem;
+    margin-bottom: 1rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.neon-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--neon-purple), transparent);
+    opacity: 0.6;
+}
+
+.neon-card:hover {
+    border-color: var(--border-glow);
+    box-shadow: var(--glow-purple);
+}
+
+.neon-card-blue {
+    border-color: rgba(76, 201, 240, 0.2);
+}
+.neon-card-blue::before {
+    background: linear-gradient(90deg, transparent, var(--neon-blue), transparent);
+}
+.neon-card-blue:hover {
+    border-color: var(--border-hot);
+    box-shadow: var(--glow-blue);
+}
+
+.neon-card-green {
+    border-color: rgba(6, 214, 160, 0.2);
+}
+.neon-card-pink {
+    border-color: rgba(247, 37, 133, 0.2);
+}
+
+/* ── Metric Cards ────────────────────────────────── */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.8rem;
+    margin-bottom: 1.2rem;
+}
+
+.metric-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 1rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.metric-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--neon-purple), var(--neon-blue));
+}
+
+.metric-value {
+    font-family: 'Orbitron', monospace;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--neon-blue);
+    text-shadow: var(--glow-blue);
+    line-height: 1;
+    margin-bottom: 0.3rem;
+}
+
+.metric-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+
+/* ── Section Labels ──────────────────────────────── */
+.section-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--neon-purple);
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border-dim), transparent);
+}
+
+/* ── Answer Options ──────────────────────────────── */
+.option-btn {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 0.9rem 1.2rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-bright);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: all 0.2s ease;
+}
+
+.option-btn:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-glow);
+    box-shadow: var(--glow-purple);
+    transform: translateX(3px);
+}
+
+.option-btn.selected {
+    border-color: var(--neon-purple);
+    background: rgba(155, 93, 229, 0.1);
+    box-shadow: var(--glow-purple);
+}
+
+.option-btn.correct {
+    border-color: var(--neon-green);
+    background: rgba(6, 214, 160, 0.08);
+    box-shadow: var(--glow-green);
+}
+
+.option-btn.wrong {
+    border-color: var(--neon-pink);
+    background: rgba(247, 37, 133, 0.08);
+    box-shadow: var(--glow-pink);
+}
+
+.option-key {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    background: rgba(155, 93, 229, 0.2);
+    border: 1px solid var(--border-glow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Orbitron', monospace;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--neon-purple);
+    flex-shrink: 0;
+}
+
+/* ── Hint Cards ──────────────────────────────────── */
+.hint-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 0.6rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.hint-card.unlocked {
+    border-color: rgba(255, 214, 10, 0.3);
+    box-shadow: 0 0 15px rgba(255, 214, 10, 0.1);
+}
+
+.hint-card.locked {
+    opacity: 0.4;
+    filter: blur(0.3px);
+}
+
+.hint-number {
+    font-family: 'Orbitron', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    color: var(--neon-yellow);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+
+.hint-text {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-bright);
+    line-height: 1.5;
+}
+
+/* ── Result Banners ──────────────────────────────── */
+.result-correct {
+    background: rgba(6, 214, 160, 0.08);
+    border: 1px solid rgba(6, 214, 160, 0.4);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    color: var(--neon-green);
+    box-shadow: var(--glow-green);
+}
+
+.result-wrong {
+    background: rgba(247, 37, 133, 0.08);
+    border: 1px solid rgba(247, 37, 133, 0.4);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    color: var(--neon-pink);
+    box-shadow: var(--glow-pink);
+}
+
+/* ── Passage Text ────────────────────────────────── */
+.passage-text {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.9;
+    color: var(--text-mid);
+}
+
+.passage-text em {
+    color: var(--neon-blue);
+    font-style: normal;
+}
+
+/* ── Question Text ───────────────────────────────── */
+.question-text {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    line-height: 1.6;
+    margin-bottom: 1.2rem;
+}
+
+/* ── Tables (Analytics) ──────────────────────────── */
+.analytics-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+}
+
+.analytics-table th {
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+    color: var(--neon-purple);
+    font-size: 0.6rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border-dim);
+}
+
+.analytics-table td {
+    padding: 0.6rem 0.8rem;
+    color: var(--text-mid);
+    border-bottom: 1px solid rgba(155, 93, 229, 0.05);
+}
+
+.analytics-table tr:hover td {
+    color: var(--text-bright);
+    background: rgba(155, 93, 229, 0.04);
+}
+
+.badge-correct {
+    background: rgba(6, 214, 160, 0.15);
+    color: var(--neon-green);
+    border: 1px solid rgba(6, 214, 160, 0.3);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+}
+
+.badge-wrong {
+    background: rgba(247, 37, 133, 0.15);
+    color: var(--neon-pink);
+    border: 1px solid rgba(247, 37, 133, 0.3);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+}
+
+/* ── Streamlit Widget Overrides ──────────────────── */
+
+/* Text area */
+textarea {
+    background: var(--bg-input) !important;
+    border: 1px solid var(--border-dim) !important;
+    border-radius: 10px !important;
+    color: var(--text-bright) !important;
+    font-family: 'Rajdhani', sans-serif !important;
+    font-size: 1rem !important;
+    line-height: 1.7 !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+textarea:focus {
+    border-color: var(--neon-purple) !important;
+    box-shadow: var(--glow-purple) !important;
+    outline: none !important;
+}
+
+/* Primary buttons */
+.stButton > button[kind="primary"],
+.stButton > button {
+    background: linear-gradient(135deg, var(--neon-purple), #6D28D9) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-family: 'Rajdhani', sans-serif !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 1px !important;
+    padding: 0.5rem 1.5rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 0 15px rgba(155, 93, 229, 0.3) !important;
+}
+
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 0 25px rgba(155, 93, 229, 0.5) !important;
+}
+
+.stButton > button:active {
+    transform: translateY(0) !important;
+}
+
+/* Selectbox / radio */
+[data-testid="stRadio"] label {
+    font-family: 'Rajdhani', sans-serif !important;
+    font-size: 1rem !important;
+    color: var(--text-mid) !important;
+}
+
+/* Sidebar nav buttons */
+.nav-btn {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    margin-bottom: 0.4rem;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-mid);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    transition: all 0.2s ease;
+}
+
+.nav-btn:hover {
+    background: rgba(155, 93, 229, 0.08);
+    border-color: var(--border-glow);
+    color: var(--text-bright);
+}
+
+.nav-btn.active {
+    background: rgba(155, 93, 229, 0.15);
+    border-color: var(--neon-purple);
+    color: var(--neon-purple);
+    box-shadow: var(--glow-purple);
+}
+
+/* Status badges */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: rgba(6, 214, 160, 0.1);
+    border: 1px solid rgba(6, 214, 160, 0.3);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--neon-green);
+    letter-spacing: 1px;
+}
+
+.status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--neon-green);
+    box-shadow: 0 0 6px var(--neon-green);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+}
+
+/* Progress bar */
+.neon-progress {
+    height: 4px;
+    background: var(--bg-card);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+}
+
+.neon-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--neon-purple), var(--neon-blue));
+    box-shadow: var(--glow-blue);
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+
+/* Confidence bar colors */
+.conf-high  { background: linear-gradient(90deg, var(--neon-green), #00FF88); }
+.conf-mid   { background: linear-gradient(90deg, var(--neon-yellow), #FFAA00); }
+.conf-low   { background: linear-gradient(90deg, var(--neon-pink), #FF0066); }
+
+/* Divider */
+.neon-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border-dim), transparent);
+    margin: 1.2rem 0;
+}
+
+/* Info box */
+.info-box {
+    background: rgba(76, 201, 240, 0.06);
+    border: 1px solid rgba(76, 201, 240, 0.2);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--neon-blue);
+    line-height: 1.6;
+}
+
+/* Remove streamlit default padding weirdness */
+[data-testid="stVerticalBlock"] { gap: 0 !important; }
+.block-container { padding: 2rem 2rem 4rem !important; max-width: 900px !important; }
+
+/* Hide streamlit branding */
+#MainMenu, footer, header { visibility: hidden; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-void); }
+::-webkit-scrollbar-thumb {
+    background: var(--neon-purple);
+    border-radius: 3px;
+    box-shadow: var(--glow-purple);
+}
