@@ -1,5 +1,5 @@
-model,accuracy,macro_f1
-Logistic Regression,0.5132,0.4786
-SVM (LinearSVC),0.7500,0.4286
-Bernoulli Naive Bayes,0.7500,0.4286
-Soft-Vote Ensemble,0.7500,0.4286
+model,accuracy,macro_f1,f1_correct
+Logistic Regression,0.5623,0.5225,0.3847
+SVM (LinearSVC),0.75,0.4286,0.0001
+Bernoulli Naive Bayes,0.4775,0.4656,0.386
+Weighted Soft-Vote Ensemble,0.7465,0.4478,0.0417
