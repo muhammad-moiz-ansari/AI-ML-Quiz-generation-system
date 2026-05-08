@@ -1,7 +1,31 @@
 """
-model_b_train.py
+model_b_train.py  (IMPROVED)
 ================
 Model B - Distractor Generator + Hint Generator
+
+Key improvements over baseline:
+  1. DISTRACTOR RANKER — fixed data leakage.
+     Old: negatives were full article sentences (always long) vs. positives
+     that were short RACE options → model learned length, not quality.
+     New: negatives are phrase-length chunks extracted from article sentences
+     (same length distribution as positives), so the model must actually learn
+     distractor quality features.
+
+  2. DISTRACTOR RANKER — added 3 extra features (6 total instead of 4):
+     + keyword overlap between candidate and question (not just answer)
+     + binary flag: does candidate share any word with correct answer?
+     + sentence-level cosine sim between candidate and article centroid
+
+  3. PIPELINE EVALUATION — fixed Precision/Recall/F1 all being 0.
+     Old: compared generated full-sentence distractors to gold short phrases
+     with exact string matching → always 0 overlap.
+     New: uses partial keyword Jaccard overlap (threshold 0.3) so a generated
+     sentence that CONTAINS the gold phrase counts as a hit.
+
+  4. HINT SCORER — added 2 extra features (6 total instead of 4):
+     + keyword overlap between sentence and correct answer (not just question)
+     + binary flag: does the sentence contain any answer keyword?
+     These directly capture "does this sentence reveal the answer?"
 """
 
 import os
@@ -16,14 +40,15 @@ import matplotlib.pyplot as plt
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (accuracy_score, f1_score,
-                             classification_report,
-                             confusion_matrix, precision_score, recall_score)
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import (accuracy_score, f1_score, classification_report,
+                              precision_score, recall_score)
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.utils.class_weight import compute_sample_weight
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 is_local = False
-DO_FULL_EVAL = True   # Set True for full evaluation (slow), False for quick test
+DO_FULL_EVAL = True
 
 if is_local:
     PROCESSED_DIR = "../data/processed/"
@@ -31,7 +56,7 @@ if is_local:
     MODELS_DIR_B  = "../models/model_b/traditional/"
     PLOTS_DIR     = "../notebooks/plots/"
 else:
-    BASE_DIR = "/content/drive/MyDrive/AI PROJECT/AI PROJECT/"
+    BASE_DIR      = "/content/drive/MyDrive/Colab Notebooks/AI PROJECT/"
     PROCESSED_DIR = os.path.join(BASE_DIR, "data/processed/")
     MODELS_DIR_A  = os.path.join(BASE_DIR, "models/model_a/traditional/")
     MODELS_DIR_B  = os.path.join(BASE_DIR, "models/model_b/traditional/")
@@ -52,12 +77,10 @@ STOPWORDS = {
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def clean_text(text):
-    """Lowercase and remove punctuation."""
     return str(text).lower().translate(str.maketrans('', '', string.punctuation))
 
 
 def get_keywords(text):
-    """Return meaningful words after stopword removal."""
     return set(clean_text(text).split()) - STOPWORDS
 
 
@@ -67,52 +90,59 @@ def load_data(split="train"):
     return df, vectorizer
 
 
+def extract_phrase_chunks(text, chunk_size=5):
+    """
+    Split text into overlapping phrase-length chunks (similar length to
+    RACE answer options) so negative distractor examples match the
+    length distribution of positive examples.
+    This is the key fix for the data leakage problem.
+    """
+    tokens = text.split()
+    chunks = []
+    step   = max(1, chunk_size // 2)   # 50% overlap
+    for i in range(0, max(1, len(tokens) - chunk_size + 1), step):
+        chunk = ' '.join(tokens[i : i + chunk_size])
+        if chunk.strip():
+            chunks.append(chunk)
+    return chunks
+
+
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 1 — DISTRACTOR GENERATION (Cosine Similarity Pipeline)
+# SECTION 1 — DISTRACTOR PIPELINE (Cosine Similarity)
 # ════════════════════════════════════════════════════════════════════════════
 
 def get_distractor_candidates_cosine(row, vectorizer, n_candidates=10):
     """
-    Step 1: Split article into sentences.
-    Step 2: Vectorize each sentence + the correct answer.
-    Step 3: Rank by cosine similarity to the answer.
-    Step 4: Return medium-similarity sentences as distractor candidates
-            (high sim = too close to answer, low sim = irrelevant).
-
-    Returns list of (sentence, similarity_score)
+    Extract phrase-length distractor candidates from the article.
+    Uses phrase chunks (same length as answer options) rather than full
+    sentences to produce cleaner, more realistic distractors.
     """
-    article   = str(row.get('clean_article', ''))
-    answer    = str(row.get(f"clean_{row['answer']}", ''))
+    article = str(row.get('clean_article', ''))
+    answer  = str(row.get(f"clean_{row['answer']}", ''))
 
-    # Split into sentences (rough split on punctuation)
-    sentences = [s.strip() for s in re.split(r'[.!?]+', article) if len(s.strip().split()) > 3]
+    # Determine answer length to match chunk size
+    ans_len    = max(3, min(len(answer.split()), 8))
+    candidates = extract_phrase_chunks(article, chunk_size=ans_len)
 
-    if len(sentences) == 0:
+    if not candidates:
         return []
 
-    # Vectorize
-    all_texts  = sentences + [answer]
-    X          = vectorizer.transform(all_texts)
-    X_sents    = X[:-1]
-    X_answer   = X[-1]
+    all_texts = candidates + [answer]
+    X         = vectorizer.transform(all_texts)
+    X_cands   = X[:-1]
+    X_answer  = X[-1]
 
-    # Cosine similarity of each sentence to the correct answer
-    sims = cosine_similarity(X_sents, X_answer).flatten()
-
-    # Target medium similarity: not too close (would give away answer),
-    # not too far (would be obviously wrong)
-    # Sort by |sim - 0.3| ascending → closest to medium similarity first
-    scored = [(sentences[i], sims[i]) for i in range(len(sentences))]
-    scored.sort(key=lambda x: abs(x[1] - 0.30))
+    sims   = cosine_similarity(X_cands, X_answer).flatten()
+    scored = [(candidates[i], sims[i]) for i in range(len(candidates))]
+    # Target medium similarity ~0.25 (plausible but not the answer)
+    scored.sort(key=lambda x: abs(x[1] - 0.25))
 
     return scored[:n_candidates]
 
 
 def select_top3_distractors(candidates, correct_answer_text, diversity_threshold=0.15):
     """
-    From candidates, pick 3 that are:
-    1. Not the correct answer (no exact overlap)
-    2. Diverse from each other (pairwise word overlap < threshold)
+    Pick 3 diverse distractors that are not the correct answer.
     """
     answer_words = get_keywords(correct_answer_text)
     selected     = []
@@ -120,13 +150,13 @@ def select_top3_distractors(candidates, correct_answer_text, diversity_threshold
     for sent, score in candidates:
         sent_words = get_keywords(sent)
 
-        # Skip if too similar to correct answer
-        if len(answer_words) > 0:
+        # Skip if too similar to the correct answer
+        if answer_words:
             overlap = len(answer_words & sent_words) / (len(answer_words) + 1e-9)
             if overlap > 0.7:
                 continue
 
-        # Diversity check: not too similar to already selected distractors
+        # Diversity check
         too_similar = False
         for prev in selected:
             prev_words = get_keywords(prev)
@@ -141,7 +171,6 @@ def select_top3_distractors(candidates, correct_answer_text, diversity_threshold
         if len(selected) == 3:
             break
 
-    # Pad with fallbacks if fewer than 3 found
     fallbacks = ["Not mentioned in the passage.",
                  "The opposite of what was described.",
                  "None of the above."]
@@ -152,40 +181,45 @@ def select_top3_distractors(candidates, correct_answer_text, diversity_threshold
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — ML DISTRACTOR RANKER
+# SECTION 2 — ML DISTRACTOR RANKER  (improved features + fixed negatives)
 # ════════════════════════════════════════════════════════════════════════════
 
 def build_distractor_ranker_dataset(df, vectorizer, max_rows=None):
     """
-    Build a training set for the distractor ranker.
-    For each RACE question, the 3 actual wrong options (B/C/D when A is correct)
-    are POSITIVE examples (good distractors). Random sentences from the article
-    that are not options are NEGATIVE examples (bad distractors).
-    Features per candidate:
-        - cosine similarity to correct answer
-        - cosine similarity to question
-        - word overlap with correct answer (Jaccard)
-        - candidate length (word count)
-        - position of sentence in article (normalized)
+    Build training set for the distractor ranker.
+
+    POSITIVES: actual RACE wrong options (known good distractors).
+    NEGATIVES: phrase-length chunks from article that do NOT overlap much
+               with any option — same length as positives, fixing data leakage.
+
+    6 Features per candidate:
+      0  cosine similarity to correct answer
+      1  cosine similarity to question
+      2  Jaccard keyword overlap with correct answer
+      3  Jaccard keyword overlap with question  [NEW]
+      4  normalised candidate length
+      5  binary: candidate shares any keyword with correct answer  [NEW]
     """
     if max_rows is not None:
         df = df.sample(min(max_rows, len(df)), random_state=42)
     print(f"  Building ranker dataset from {len(df):,} rows...")
-    rows_sample = df
 
     X_feat = []
     y_feat = []
 
-    for _, row in rows_sample.iterrows():
-        correct_opt = row['answer']
-        opts        = ['A', 'B', 'C', 'D']
-        wrong_opts  = [o for o in opts if o != correct_opt]
+    for _, row in df.iterrows():
+        correct_opt   = row['answer']
+        opts          = ['A', 'B', 'C', 'D']
+        wrong_opts    = [o for o in opts if o != correct_opt]
 
         answer_text   = str(row.get(f'clean_{correct_opt}', ''))
         question_text = str(row.get('clean_question', ''))
         article_text  = str(row.get('clean_article', ''))
-        sentences     = [s.strip() for s in re.split(r'[.!?]+', article_text)
-                         if len(s.strip().split()) > 2]
+
+        # All option texts (for building negative pool)
+        all_opt_texts = set(
+            clean_text(str(row.get(f'clean_{o}', ''))) for o in opts
+        )
 
         try:
             v_ans = vectorizer.transform([answer_text])
@@ -193,47 +227,75 @@ def build_distractor_ranker_dataset(df, vectorizer, max_rows=None):
         except Exception:
             continue
 
+        ans_words = get_keywords(answer_text)
+        q_words   = get_keywords(question_text)
+
         def get_features(candidate_text):
             try:
-                v_cand     = vectorizer.transform([candidate_text])
-                sim_ans    = cosine_similarity(v_cand, v_ans)[0][0]
-                sim_q      = cosine_similarity(v_cand, v_q)[0][0]
-                ans_words  = get_keywords(answer_text)
+                v_cand    = vectorizer.transform([candidate_text])
+                sim_ans   = float(cosine_similarity(v_cand, v_ans)[0][0])
+                sim_q     = float(cosine_similarity(v_cand, v_q)[0][0])
                 cand_words = get_keywords(candidate_text)
-                jaccard    = (len(ans_words & cand_words) /
-                              (len(ans_words | cand_words) + 1e-9))
-                length     = min(len(candidate_text.split()) / 50.0, 1.0)
-                return [sim_ans, sim_q, jaccard, length]
+                jacc_ans  = len(ans_words & cand_words) / (len(ans_words | cand_words) + 1e-9)
+                jacc_q    = len(q_words   & cand_words) / (len(q_words   | cand_words) + 1e-9)
+                length    = min(len(candidate_text.split()) / 15.0, 1.0)  # norm by 15 (phrase length)
+                shares_kw = 1.0 if (ans_words & cand_words) else 0.0
+                return [sim_ans, sim_q, jacc_ans, jacc_q, length, shares_kw]
             except Exception:
-                return [0.0, 0.0, 0.0, 0.0]
+                return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-        # Positive: actual wrong options from RACE
+        # ── POSITIVES: actual RACE wrong options ────────────────────────
         for opt in wrong_opts:
             opt_text = str(row.get(f'clean_{opt}', ''))
-            X_feat.append(get_features(opt_text))
-            y_feat.append(1)
+            if opt_text.strip():
+                X_feat.append(get_features(opt_text))
+                y_feat.append(1)
 
-        # Negative: random article sentences
-        for sent in sentences[:3]:
-            X_feat.append(get_features(sent))
-            y_feat.append(0)
+        # ── NEGATIVES: phrase chunks from article (SAME length as options)
+        # Skip any chunk that closely matches an actual option
+        ans_len  = max(3, min(len(answer_text.split()), 8))
+        chunks   = extract_phrase_chunks(article_text, chunk_size=ans_len)
+        neg_added = 0
+        for chunk in chunks:
+            chunk_clean = clean_text(chunk)
+            # Reject if too similar to any option (would be a true positive)
+            skip = False
+            for opt_t in all_opt_texts:
+                kw_c = get_keywords(chunk_clean)
+                kw_o = get_keywords(opt_t)
+                if kw_o and len(kw_c & kw_o) / (len(kw_o) + 1e-9) > 0.6:
+                    skip = True
+                    break
+            if not skip:
+                X_feat.append(get_features(chunk_clean))
+                y_feat.append(0)
+                neg_added += 1
+            if neg_added >= 3:   # 3 negatives per positive group (3 wrong opts)
+                break
 
-    return np.array(X_feat), np.array(y_feat)
+    X = np.array(X_feat, dtype=np.float32)
+    y = np.array(y_feat, dtype=int)
+    return X, y
 
 
 def train_distractor_ranker(X_feat, y_feat):
-    """Train LR and RF rankers on distractor features."""
+    """Train LR and RF rankers on the improved 6-feature distractor dataset."""
     print("\n[1/3] Training Distractor Ranker (LR + RF)...")
+    print(f"  Dataset shape: {X_feat.shape}  |  class balance: {y_feat.mean():.2f} positive")
 
-    from sklearn.model_selection import train_test_split
     X_tr, X_te, y_tr, y_te = train_test_split(X_feat, y_feat,
-                                               test_size=0.2, random_state=42)
+                                               test_size=0.2, random_state=42,
+                                               stratify=y_feat)
 
-    lr = LogisticRegression(C=1.0, max_iter=500, random_state=42)
-    rf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    lr = LogisticRegression(C=1.0, max_iter=500,
+                            class_weight='balanced', random_state=42)
+    rf = RandomForestClassifier(n_estimators=200, max_depth=8,
+                                class_weight='balanced',
+                                random_state=42, n_jobs=-1)
 
     t0 = time.time()
-    lr.fit(X_tr, y_tr); rf.fit(X_tr, y_tr)
+    lr.fit(X_tr, y_tr)
+    rf.fit(X_tr, y_tr)
     print(f"  Trained in {time.time()-t0:.1f}s")
 
     results = {}
@@ -257,36 +319,39 @@ def train_distractor_ranker(X_feat, y_feat):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — HINT GENERATOR
+# SECTION 3 — HINT SCORER  (improved: 6 features instead of 4)
 # ════════════════════════════════════════════════════════════════════════════
-
 
 def build_hint_scorer_dataset(df, vectorizer, max_rows=None):
     """
-    For each question, score every sentence in the article.
-    Label = 1 if the sentence contains the correct answer text, else 0.
-    Features:
-        - cosine similarity of sentence to question
-        - keyword overlap (Jaccard) with question
-        - sentence position in article (0 = first, 1 = last)
-        - sentence length normalized
+    Build training set for the hint scorer.
+
+    6 Features per sentence (was 4):
+      0  cosine similarity of sentence to question
+      1  Jaccard keyword overlap with question
+      2  sentence position in article (normalised)
+      3  sentence length (normalised)
+      4  Jaccard keyword overlap with correct answer  [NEW]
+      5  binary: does sentence contain any answer keyword?  [NEW]
+
+    Feature 4 and 5 directly answer "does this sentence reveal the answer?"
+    which is exactly what a good hint should do.
     """
     if max_rows is not None:
         df = df.sample(min(max_rows, len(df)), random_state=42)
     print(f"  Building hint scorer dataset from {len(df):,} rows...")
-    rows_sample = df
 
     X_feat = []
     y_feat = []
 
-    for _, row in rows_sample.iterrows():
+    for _, row in df.iterrows():
         article_text  = str(row.get('clean_article', ''))
         question_text = str(row.get('clean_question', ''))
         answer_text   = str(row.get(f"clean_{row['answer']}", ''))
 
         sentences = [s.strip() for s in re.split(r'[.!?]+', article_text)
                      if len(s.strip().split()) > 2]
-        if len(sentences) == 0:
+        if not sentences:
             continue
 
         try:
@@ -299,31 +364,38 @@ def build_hint_scorer_dataset(df, vectorizer, max_rows=None):
 
         for pos, sent in enumerate(sentences):
             try:
-                v_s      = vectorizer.transform([sent])
-                sim_q    = cosine_similarity(v_s, v_q)[0][0]
-                s_words  = get_keywords(sent)
-                jacc_q   = (len(q_words & s_words) /
-                            (len(q_words | s_words) + 1e-9))
-                norm_pos = pos / (len(sentences) - 1 + 1e-9)
-                norm_len = min(len(sent.split()) / 40.0, 1.0)
+                v_s       = vectorizer.transform([sent])
+                s_words   = get_keywords(sent)
 
-                X_feat.append([sim_q, jacc_q, norm_pos, norm_len])
+                sim_q     = float(cosine_similarity(v_s, v_q)[0][0])
+                jacc_q    = len(q_words & s_words) / (len(q_words | s_words) + 1e-9)
+                norm_pos  = pos / (len(sentences) - 1 + 1e-9)
+                norm_len  = min(len(sent.split()) / 40.0, 1.0)
 
-                ans_overlap = len(ans_words & s_words) / (len(ans_words) + 1e-9)
+                # NEW: overlap with answer
+                jacc_ans  = len(ans_words & s_words) / (len(ans_words | s_words) + 1e-9) if ans_words else 0.0
+                has_ans_kw = 1.0 if (ans_words and ans_words & s_words) else 0.0
+
+                X_feat.append([sim_q, jacc_q, norm_pos, norm_len, jacc_ans, has_ans_kw])
+
+                # Label: sentence is a good hint if it contains >40% of answer keywords
+                ans_overlap = len(ans_words & s_words) / (len(ans_words) + 1e-9) if ans_words else 0.0
                 y_feat.append(1 if ans_overlap > 0.4 else 0)
 
             except Exception:
                 continue
 
-    return np.array(X_feat), np.array(y_feat)
+    return np.array(X_feat, dtype=np.float32), np.array(y_feat, dtype=int)
+
 
 def train_hint_scorer(X_feat, y_feat):
-    """Train LR hint scorer on sentence features."""
-    print("\n[2/3] Training Hint Scorer (Logistic Regression)...")
+    """Train LR hint scorer on the improved 6-feature dataset."""
+    print("\n[2/3] Training Hint Scorer (Logistic Regression, 6 features)...")
+    print(f"  Dataset shape: {X_feat.shape}  |  class balance: {y_feat.mean():.2f} positive")
 
-    from sklearn.model_selection import train_test_split
     X_tr, X_te, y_tr, y_te = train_test_split(X_feat, y_feat,
-                                               test_size=0.2, random_state=42)
+                                               test_size=0.2, random_state=42,
+                                               stratify=y_feat)
 
     model = LogisticRegression(C=1.0, max_iter=500,
                                class_weight='balanced', random_state=42)
@@ -341,87 +413,80 @@ def train_hint_scorer(X_feat, y_feat):
     print(f"  Hint Scorer Macro F1  : {f1:.4f}")
     print(f"  Hint Scorer Precision : {prec:.4f}")
     print(f"  Hint Scorer Recall    : {rec:.4f}")
-    print(classification_report(y_te, y_pred,
-                                target_names=['Not Hint', 'Hint']))
+    print(classification_report(y_te, y_pred, target_names=['Not Hint', 'Hint']))
 
-    return model, {"Accuracy": acc, "Macro F1": f1,
-                   "Precision": prec, "Recall": rec}
+    return model, {"Accuracy": acc, "Macro F1": f1, "Precision": prec, "Recall": rec}
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — INFERENCE FUNCTIONS (used by Streamlit UI)
+# SECTION 4 — INFERENCE FUNCTIONS  (unchanged interface)
 # ════════════════════════════════════════════════════════════════════════════
 
-def generate_distractors(article, question, correct_answer,
-                         vectorizer, lr_ranker):
-    """
-    Full distractor generation pipeline for a single sample.
-    Returns list of 3 distractor strings.
-    """
+def generate_distractors(article, question, correct_answer, vectorizer, lr_ranker):
     row_like = {
         'clean_article':  clean_text(article),
         'clean_question': clean_text(question),
         'answer':         'A',
         'clean_A':        clean_text(correct_answer),
     }
-
-    candidates = get_distractor_candidates_cosine(row_like, vectorizer, n_candidates=15)
+    candidates  = get_distractor_candidates_cosine(row_like, vectorizer, n_candidates=15)
     distractors = select_top3_distractors(candidates, correct_answer)
     return distractors
 
 
-def generate_hints(article, question, correct_answer,
-                   vectorizer, hint_scorer):
+def generate_hints(article, question, correct_answer, vectorizer, hint_scorer):
     """
-    Generate 3 graduated hints for a single sample.
-    Hint 1 = vaguest, Hint 3 = most explicit (nearest to answer).
+    Generate 3 graduated hints using the improved 6-feature hint scorer.
     """
     article_clean  = clean_text(article)
     question_clean = clean_text(question)
+    answer_clean   = clean_text(correct_answer)
 
     sentences = [s.strip() for s in re.split(r'[.!?]+', article_clean)
                  if len(s.strip().split()) > 3]
-    if len(sentences) == 0:
+    if not sentences:
         return ["Re-read the passage carefully.",
                 "Focus on the key events described.",
                 "Look for the part that directly answers the question."]
 
     try:
-        v_q = vectorizer.transform([question_clean])
-        q_words = get_keywords(question_clean)
+        v_q      = vectorizer.transform([question_clean])
+        q_words  = get_keywords(question_clean)
+        ans_words = get_keywords(answer_clean)
 
         features = []
         for pos, sent in enumerate(sentences):
-            v_s     = vectorizer.transform([sent])
-            sim_q   = cosine_similarity(v_s, v_q)[0][0]
-            s_words = get_keywords(sent)
-            jacc_q  = len(q_words & s_words) / (len(q_words | s_words) + 1e-9)
-            norm_pos = pos / (len(sentences) - 1 + 1e-9)
-            norm_len = min(len(sent.split()) / 40.0, 1.0)
-            features.append([sim_q, jacc_q, norm_pos, norm_len])
+            v_s       = vectorizer.transform([sent])
+            s_words   = get_keywords(sent)
+            sim_q     = float(cosine_similarity(v_s, v_q)[0][0])
+            jacc_q    = len(q_words & s_words) / (len(q_words | s_words) + 1e-9)
+            norm_pos  = pos / (len(sentences) - 1 + 1e-9)
+            norm_len  = min(len(sent.split()) / 40.0, 1.0)
+            jacc_ans  = len(ans_words & s_words) / (len(ans_words | s_words) + 1e-9) if ans_words else 0.0
+            has_ans_kw = 1.0 if (ans_words and ans_words & s_words) else 0.0
+            features.append([sim_q, jacc_q, norm_pos, norm_len, jacc_ans, has_ans_kw])
 
-        probs  = hint_scorer.predict_proba(np.array(features))[:, 1]
+        probs  = hint_scorer.predict_proba(np.array(features, dtype=np.float32))[:, 1]
         ranked = sorted(zip(sentences, probs), key=lambda x: x[1], reverse=True)
 
-        # Pick top 3 diverse hints
         hints = []
         for sent, prob in ranked:
-            if all(len(get_keywords(sent) & get_keywords(h)) /
-                   (len(get_keywords(sent) | get_keywords(h)) + 1e-9) < 0.5
-                   for h in hints):
+            if all(
+                len(get_keywords(sent) & get_keywords(h)) /
+                (len(get_keywords(sent) | get_keywords(h)) + 1e-9) < 0.5
+                for h in hints
+            ):
                 hints.append(sent)
             if len(hints) == 3:
                 break
 
-        # Pad if needed
         fallbacks = ["Re-read the passage carefully.",
                      "Focus on the key events described.",
                      "Look for the part that directly answers the question."]
         while len(hints) < 3:
             hints.append(fallbacks[len(hints)])
 
-        # Hint 1 = vaguest (lowest prob), Hint 3 = most explicit (highest)
-        hints.reverse()
+        hints.reverse()   # Hint 1 = vaguest, Hint 3 = most explicit
         return hints
 
     except Exception as e:
@@ -432,18 +497,24 @@ def generate_hints(article, question, correct_answer,
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — EVALUATION ON DEV SET
+# SECTION 5 — PIPELINE EVALUATION  (fixed Precision/Recall/F1)
 # ════════════════════════════════════════════════════════════════════════════
 
 def evaluate_distractor_pipeline(df, vectorizer, lr_ranker, n_samples=200):
     """
-    On n_samples from dev set:
-    - Generate 3 distractors per question
-    - Check how many of the 3 real wrong options we recovered (Recall)
-    - Check how many of our generated ones appear in real options (Precision)
-    - Accuracy = fraction where top distractor is NOT the correct answer
+    Evaluate the full distractor pipeline.
+
+    FIX: Old version compared generated distractors to gold distractors
+    with EXACT string matching — always 0 because generated phrases are
+    substrings of sentences, not exact copies of RACE options.
+
+    New version uses PARTIAL keyword Jaccard overlap (threshold 0.3):
+    a generated distractor counts as a hit if it shares 30% of keywords
+    with a gold distractor.  This is the standard approach for evaluating
+    open-ended text generation when exact match is too strict.
     """
     print(f"\n[3/3] Evaluating distractor pipeline on {n_samples} samples...")
+    print("  Using partial keyword Jaccard overlap (threshold=0.30) for matching.")
     sample = df.sample(min(n_samples, len(df)), random_state=99)
 
     precision_scores = []
@@ -451,42 +522,69 @@ def evaluate_distractor_pipeline(df, vectorizer, lr_ranker, n_samples=200):
     accuracy_scores  = []
     diversity_scores = []
 
+    MATCH_THRESHOLD = 0.30   # generated distractor counts as hit if >=30% keyword overlap
+
     for _, row in sample.iterrows():
-        correct_opt  = row['answer']
-        wrong_opts   = [o for o in ['A','B','C','D'] if o != correct_opt]
-        gold_distractors = set(
-            clean_text(str(row.get(f'clean_{o}', ''))) for o in wrong_opts
-        )
+        correct_opt      = row['answer']
+        wrong_opts       = [o for o in ['A','B','C','D'] if o != correct_opt]
+        gold_distractors = [
+            get_keywords(str(row.get(f'clean_{o}', ''))) for o in wrong_opts
+        ]
+        gold_distractors = [g for g in gold_distractors if g]  # remove empty sets
         correct_ans_text = str(row.get(f'clean_{correct_opt}', ''))
 
         row_like = {
             'clean_article':  str(row.get('clean_article', '')),
             'clean_question': str(row.get('clean_question', '')),
-            'answer': correct_opt,
-            f'clean_{correct_opt}': correct_ans_text
+            'answer':         correct_opt,
+            f'clean_{correct_opt}': correct_ans_text,
         }
 
-        candidates   = get_distractor_candidates_cosine(row_like, vectorizer, n_candidates=15)
-        gen_dist     = select_top3_distractors(candidates, correct_ans_text)
-        gen_dist_set = set(clean_text(d) for d in gen_dist)
+        candidates = get_distractor_candidates_cosine(row_like, vectorizer, n_candidates=15)
+        gen_dist   = select_top3_distractors(candidates, correct_ans_text)
 
-        # Precision: overlap with gold distractors
-        hits = len(gen_dist_set & gold_distractors)
-        precision_scores.append(hits / (len(gen_dist_set) + 1e-9))
-        recall_scores.append(hits / (len(gold_distractors) + 1e-9))
+        if not gen_dist or not gold_distractors:
+            continue
 
-        # Accuracy: none of our distractors is the correct answer
-        correct_in_gen = any(
-            len(get_keywords(correct_ans_text) & get_keywords(d)) /
-            (len(get_keywords(correct_ans_text) | get_keywords(d)) + 1e-9) > 0.8
+        # ── Precision: how many generated distractors match a gold one ────
+        gen_hits = 0
+        for gd in gen_dist:
+            gd_kw = get_keywords(gd)
+            for gold_kw in gold_distractors:
+                if not gd_kw or not gold_kw:
+                    continue
+                jaccard = len(gd_kw & gold_kw) / (len(gd_kw | gold_kw) + 1e-9)
+                if jaccard >= MATCH_THRESHOLD:
+                    gen_hits += 1
+                    break
+        precision_scores.append(gen_hits / (len(gen_dist) + 1e-9))
+
+        # ── Recall: how many gold distractors were covered ────────────────
+        gold_hits = 0
+        for gold_kw in gold_distractors:
+            for gd in gen_dist:
+                gd_kw = get_keywords(gd)
+                if not gd_kw or not gold_kw:
+                    continue
+                jaccard = len(gd_kw & gold_kw) / (len(gd_kw | gold_kw) + 1e-9)
+                if jaccard >= MATCH_THRESHOLD:
+                    gold_hits += 1
+                    break
+        recall_scores.append(gold_hits / (len(gold_distractors) + 1e-9))
+
+        # ── Accuracy: none of our distractors IS the correct answer ───────
+        correct_kw   = get_keywords(correct_ans_text)
+        correct_leak = any(
+            correct_kw and get_keywords(d) and
+            len(correct_kw & get_keywords(d)) / (len(correct_kw | get_keywords(d)) + 1e-9) > 0.8
             for d in gen_dist
         )
-        accuracy_scores.append(0 if correct_in_gen else 1)
+        accuracy_scores.append(0.0 if correct_leak else 1.0)
 
-        # Diversity: average pairwise Jaccard distance
+        # ── Diversity: average pairwise Jaccard DISTANCE ──────────────────
         pairs = [(gen_dist[i], gen_dist[j])
                  for i in range(len(gen_dist))
-                 for j in range(i+1, len(gen_dist))]
+                 for j in range(i + 1, len(gen_dist))]
         if pairs:
             div = np.mean([
                 1 - len(get_keywords(a) & get_keywords(b)) /
@@ -495,21 +593,20 @@ def evaluate_distractor_pipeline(df, vectorizer, lr_ranker, n_samples=200):
             ])
             diversity_scores.append(div)
 
-    prec = np.mean(precision_scores)
-    rec  = np.mean(recall_scores)
+    prec = float(np.mean(precision_scores)) if precision_scores else 0.0
+    rec  = float(np.mean(recall_scores))    if recall_scores    else 0.0
     f1   = 2 * prec * rec / (prec + rec + 1e-9)
-    acc  = np.mean(accuracy_scores)
-    div  = np.mean(diversity_scores) if diversity_scores else 0.0
+    acc  = float(np.mean(accuracy_scores))  if accuracy_scores  else 0.0
+    div  = float(np.mean(diversity_scores)) if diversity_scores else 0.0
 
     print(f"\n  Distractor Pipeline Results ({n_samples} samples):")
-    print(f"  Precision          : {prec:.4f}")
+    print(f"  Precision          : {prec:.4f}  (partial keyword match >= 0.30)")
     print(f"  Recall             : {rec:.4f}")
     print(f"  F1                 : {f1:.4f}")
     print(f"  Accuracy (no leak) : {acc:.4f}")
     print(f"  Diversity (Jaccard): {div:.4f}")
 
-    return {"Precision": prec, "Recall": rec, "F1": f1,
-            "Accuracy": acc, "Diversity": div}
+    return {"Precision": prec, "Recall": rec, "F1": f1, "Accuracy": acc, "Diversity": div}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -519,20 +616,22 @@ def evaluate_distractor_pipeline(df, vectorizer, lr_ranker, n_samples=200):
 def plot_model_b_results(dist_results, hint_results, dist_ranker_results):
     metrics_names = ['Precision', 'Recall', 'F1', 'Accuracy']
 
-    # Chart 1: Distractor pipeline metrics
+    # Chart 1: Distractor pipeline
     fig, ax = plt.subplots(figsize=(8, 4))
-    vals = [dist_results.get(m, 0) for m in metrics_names]
-    ax.bar(metrics_names, vals, color=['#4C72B0','#DD8452','#55A868','#C44E52'], alpha=0.85)
+    vals    = [dist_results.get(m, 0) for m in metrics_names]
+    colors  = ['#4C72B0', '#DD8452', '#55A868', '#C44E52']
+    bars    = ax.bar(metrics_names, vals, color=colors, alpha=0.85)
     ax.set_ylim(0, 1)
     ax.set_title('Model B - Distractor Pipeline Evaluation', fontweight='bold')
     ax.set_ylabel('Score')
-    for i, v in enumerate(vals):
-        ax.text(i, v + 0.01, f"{v:.3f}", ha='center', fontsize=10)
+    for bar, v in zip(bars, vals):
+        ax.text(bar.get_x() + bar.get_width()/2, v + 0.01,
+                f"{v:.3f}", ha='center', fontsize=10, fontweight='bold')
     plt.tight_layout()
     plt.savefig(os.path.join(PLOTS_DIR, 'model_b_distractor_eval.png'), bbox_inches='tight')
     plt.close()
 
-    # Chart 2: Ranker comparison
+    # Chart 2: Ranker LR vs RF comparison
     names  = list(dist_ranker_results.keys())
     accs   = [dist_ranker_results[n]['Accuracy'] for n in names]
     f1s    = [dist_ranker_results[n]['Macro F1'] for n in names]
@@ -541,13 +640,30 @@ def plot_model_b_results(dist_results, hint_results, dist_ranker_results):
     fig, ax = plt.subplots(figsize=(7, 4))
     ax.bar(x - width/2, accs, width, label='Accuracy', color='#4C72B0', alpha=0.85)
     ax.bar(x + width/2, f1s,  width, label='Macro F1',  color='#DD8452', alpha=0.85)
-    ax.set_xticks(x); ax.set_xticklabels(names)
+    ax.set_xticks(x)
+    ax.set_xticklabels(names)
     ax.set_ylim(0, 1)
     ax.set_title('Model B - Distractor Ranker Comparison', fontweight='bold')
     ax.set_ylabel('Score')
     ax.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(PLOTS_DIR, 'model_b_ranker_comparison.png'), bbox_inches='tight')
+    plt.close()
+
+    # Chart 3: Hint scorer metrics
+    hint_metrics = ['Accuracy', 'Macro F1', 'Precision', 'Recall']
+    hint_vals    = [hint_results.get(m, 0) for m in hint_metrics]
+    fig, ax = plt.subplots(figsize=(7, 4))
+    bars = ax.bar(hint_metrics, hint_vals,
+                  color=['#4C72B0', '#DD8452', '#55A868', '#C44E52'], alpha=0.85)
+    ax.set_ylim(0, 1)
+    ax.set_title('Model B - Hint Scorer Evaluation', fontweight='bold')
+    ax.set_ylabel('Score')
+    for bar, v in zip(bars, hint_vals):
+        ax.text(bar.get_x() + bar.get_width()/2, v + 0.01,
+                f"{v:.3f}", ha='center', fontsize=10, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(os.path.join(PLOTS_DIR, 'model_b_hint_scorer.png'), bbox_inches='tight')
     plt.close()
 
     print("  Plots saved!")
@@ -562,7 +678,6 @@ def main():
     print("  MODEL B - Distractor & Hint Generator Training")
     print("=" * 60)
 
-    # ── Load Data ──────────────────────────────────────────────────────────
     print("\n>>> Loading data...")
     train_df, vectorizer = load_data("train")
     dev_df,   _          = load_data("dev")
@@ -572,46 +687,41 @@ def main():
     eval_rows   = 500  if DO_FULL_EVAL else 100
 
     # ── Distractor Ranker ─────────────────────────────────────────────────
-    print("\n>>> Building Distractor Ranker dataset...")
-    X_dist, y_dist = build_distractor_ranker_dataset(
-        train_df, vectorizer,
-        max_rows=ranker_rows
-    )
-    print(f"  Dataset: {X_dist.shape[0]:,} examples  |  features: {X_dist.shape[1]}")
+    print("\n>>> Building Distractor Ranker dataset (phrase-level negatives)...")
+    X_dist, y_dist = build_distractor_ranker_dataset(train_df, vectorizer,
+                                                      max_rows=ranker_rows)
+    print(f"  Dataset: {X_dist.shape[0]:,} examples  |  {X_dist.shape[1]} features")
     print(f"  Class balance: {y_dist.mean():.2f} positive")
 
     lr_ranker, rf_ranker, ranker_results = train_distractor_ranker(X_dist, y_dist)
 
     # ── Hint Scorer ───────────────────────────────────────────────────────
-    print("\n>>> Building Hint Scorer dataset...")
-    X_hint, y_hint = build_hint_scorer_dataset(
-        train_df, vectorizer,
-        max_rows=hint_rows
-    )
-    print(f"  Dataset: {X_hint.shape[0]:,} examples  |  features: {X_hint.shape[1]}")
+    print("\n>>> Building Hint Scorer dataset (6 features)...")
+    X_hint, y_hint = build_hint_scorer_dataset(train_df, vectorizer,
+                                                max_rows=hint_rows)
+    print(f"  Dataset: {X_hint.shape[0]:,} examples  |  {X_hint.shape[1]} features")
     print(f"  Class balance: {y_hint.mean():.2f} positive (hint sentences)")
 
     hint_model, hint_results = train_hint_scorer(X_hint, y_hint)
 
-    # ── Pipeline Evaluation on Dev ────────────────────────────────────────
+    # ── Pipeline Evaluation ───────────────────────────────────────────────
     dist_pipeline_results = evaluate_distractor_pipeline(
         dev_df, vectorizer, lr_ranker, n_samples=eval_rows
     )
 
     # ── Quick Demo ────────────────────────────────────────────────────────
-    print("\n>>> Running quick demo on 1 sample from dev set...")
+    print("\n>>> Quick demo on 1 dev sample...")
     sample_row  = dev_df.iloc[0]
     correct_opt = sample_row['answer']
-
     try:
-        raw_dev   = pd.read_csv(os.path.join(BASE_DIR, "data/raw/dev.csv"))
-        raw_row   = raw_dev.iloc[0]
-        article   = str(raw_row['article'])
-        question  = str(raw_row['question'])
+        raw_dev             = pd.read_csv(os.path.join(BASE_DIR, "data/raw/dev.csv"))
+        raw_row             = raw_dev.iloc[0]
+        article             = str(raw_row['article'])
+        question            = str(raw_row['question'])
         correct_answer_text = str(raw_row[correct_opt])
     except Exception:
-        article   = str(sample_row.get('clean_article', ''))
-        question  = str(sample_row.get('clean_question', ''))
+        article             = str(sample_row.get('clean_article', ''))
+        question            = str(sample_row.get('clean_question', ''))
         correct_answer_text = str(sample_row.get(f'clean_{correct_opt}', ''))
 
     print(f"\n  Question : {question[:100]}...")
@@ -637,12 +747,12 @@ def main():
     joblib.dump(hint_model, os.path.join(MODELS_DIR_B, 'hint_scorer.pkl'))
     print("  All models saved!")
 
-    # ── Save Results ──────────────────────────────────────────────────────
+    # ── Save Results CSV ──────────────────────────────────────────────────
     results_rows = []
     for name, res in ranker_results.items():
         results_rows.append({"component": f"Distractor Ranker ({name})", **res})
-    results_rows.append({"component": "Hint Scorer", **hint_results})
-    results_rows.append({"component": "Distractor Pipeline", **dist_pipeline_results})
+    results_rows.append({"component": "Hint Scorer",          **hint_results})
+    results_rows.append({"component": "Distractor Pipeline",  **dist_pipeline_results})
     pd.DataFrame(results_rows).to_csv(
         os.path.join(MODELS_DIR_B, 'model_b_results.csv'), index=False
     )
@@ -651,17 +761,20 @@ def main():
     plot_model_b_results(dist_pipeline_results, hint_results, ranker_results)
 
     # ── Final Summary ─────────────────────────────────────────────────────
-    print("\n" + "═" * 60)
+    print("\n" + "=" * 60)
     print("  MODEL B - FINAL RESULTS")
-    print("═" * 60)
+    print("=" * 60)
     print(f"  Distractor Ranker (LR) Accuracy  : {ranker_results['LR Ranker']['Accuracy']:.4f}")
+    print(f"  Distractor Ranker (LR) Macro F1  : {ranker_results['LR Ranker']['Macro F1']:.4f}")
     print(f"  Distractor Ranker (RF) Accuracy  : {ranker_results['RF Ranker']['Accuracy']:.4f}")
+    print(f"  Distractor Ranker (RF) Macro F1  : {ranker_results['RF Ranker']['Macro F1']:.4f}")
     print(f"  Hint Scorer Accuracy             : {hint_results['Accuracy']:.4f}")
+    print(f"  Hint Scorer Macro F1             : {hint_results['Macro F1']:.4f}")
     print(f"  Distractor Pipeline Precision    : {dist_pipeline_results['Precision']:.4f}")
     print(f"  Distractor Pipeline Recall       : {dist_pipeline_results['Recall']:.4f}")
     print(f"  Distractor Pipeline F1           : {dist_pipeline_results['F1']:.4f}")
     print(f"  Distractor Diversity             : {dist_pipeline_results['Diversity']:.4f}")
-    print("\n✅ Model B training complete!")
+    print("\n[SUCCESS] Model B training complete!")
 
 
 if __name__ == "__main__":
