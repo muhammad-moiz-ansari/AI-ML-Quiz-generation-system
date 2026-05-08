@@ -126,7 +126,7 @@ with st.sidebar:
 
     st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='info-box'>Model A: Loaded ✅<br>Model B: Loaded ✅</div>",
+        "<div class='info-box'>Model A: Loaded ✅<br>Model B: Loaded ✅</div><br>",
         unsafe_allow_html=True
     )
 
@@ -335,17 +335,19 @@ elif page == "3. 💡 Hint Explorer":
 
     if not st.session_state.quiz_data:
         st.warning("No quiz active. Go to Article Input and generate a quiz first.")
+        st.markdown("<br>", unsafe_allow_html=True)
 
     elif st.session_state.is_correct is None:
         # User has not attempted the quiz yet
         st.info("Answer the quiz on the **Take Quiz** tab first, then come back for hints.")
+        st.markdown("<br>", unsafe_allow_html=True)
 
     elif st.session_state.is_correct:
         # User was correct - no hints needed
         st.markdown(
             "<div class='result-correct'>"
             "You answered correctly! No hints needed. Great work."
-            "</div>",
+            "</div><br>",
             unsafe_allow_html=True
         )
         st.markdown(f"**Correct answer:** {st.session_state.quiz_data['correct_text']}")
