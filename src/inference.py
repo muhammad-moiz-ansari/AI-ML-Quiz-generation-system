@@ -24,6 +24,7 @@ import re
 import random
 import joblib
 import numpy as np
+import scipy.sparse
 
 # ── Paths - adjust if your folder structure differs ──────────────────────────
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -94,6 +95,35 @@ print("[inference] Loading models...")
 MODELS = _load_models()
 print("[inference] All available models ready.\n")
 
+# ── Detect how many features the saved models expect ─────────────────────────
+# Old models (trained before hand-crafted features): 5000
+# New models (trained with _hand_crafted_features): 5007
+def _detect_n_features():
+    for key in ('lr', 'svm', 'nb', 'ensemble'):
+        m = MODELS.get(key)
+        if m is None:
+            continue
+        # VotingClassifier wraps estimators; inspect the first named step
+        try:
+            if hasattr(m, 'n_features_in_'):
+                return int(m.n_features_in_)
+            # CalibratedClassifierCV
+            if hasattr(m, 'estimators_'):
+                inner = m.estimators_[0]
+                if hasattr(inner, 'coef_'):
+                    return int(inner.coef_.shape[1])
+            # VotingClassifier
+            if hasattr(m, 'estimators'):
+                for _, sub in m.estimators:
+                    if hasattr(sub, 'n_features_in_'):
+                        return int(sub.n_features_in_)
+        except Exception:
+            pass
+    return 5007   # default to new if unknown
+
+N_FEATURES_EXPECTED = _detect_n_features()
+print(f"[inference] Models expect {N_FEATURES_EXPECTED} features.")
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  HELPER FUNCTIONS
@@ -116,13 +146,83 @@ def _clean(text):
     return text
 
 
-def _vectorize(text):
+def _keyword_overlap(text_a: str, text_b: str) -> float:
+    """Jaccard overlap of non-stopword tokens between two texts."""
+    words_a = set(text_a.lower().split()) - STOPWORDS
+    words_b = set(text_b.lower().split()) - STOPWORDS
+    if not words_a and not words_b:
+        return 0.0
+    return len(words_a & words_b) / (len(words_a | words_b) + 1e-9)
+
+
+def _hand_crafted_features(article: str, question: str, option: str,
+                            all_options: list) -> np.ndarray:
     """
-    Convert a raw text string into a One-Hot Encoded feature vector.
-    Returns a sparse matrix with shape (1, 5000).
+    Build the same 7 hand-crafted features used during training.
+    MUST match model_a_train.py _hand_crafted_features() exactly,
+    otherwise the saved models receive the wrong number of features.
+
+    Features (7 dimensions):
+      0  keyword overlap between option and article
+      1  keyword overlap between option and question
+      2  keyword overlap between question and article
+      3  length of option normalised by max option length in the group
+      4  position of this option in [A,B,C,D] list  (0.0 to 1.0)
+      5  binary: option text appears verbatim as substring of article
+      6  fraction of option unique words present in article
     """
-    cleaned = _clean(text)
-    return MODELS['vectorizer'].transform([cleaned])
+    art_clean  = article.lower().translate(str.maketrans('', '', string.punctuation))
+    q_clean    = question.lower().translate(str.maketrans('', '', string.punctuation))
+    opt_clean  = option.lower().translate(str.maketrans('', '', string.punctuation))
+
+    f0 = _keyword_overlap(opt_clean, art_clean)
+    f1 = _keyword_overlap(opt_clean, q_clean)
+    f2 = _keyword_overlap(q_clean, art_clean)
+
+    max_len = max(len(o.split()) for o in all_options) if all_options else 1
+    f3 = len(option.split()) / (max_len + 1e-9)
+
+    try:
+        pos = all_options.index(option)
+        f4  = pos / max(len(all_options) - 1, 1)
+    except ValueError:
+        f4 = 0.0
+
+    f5 = 1.0 if opt_clean in art_clean else 0.0
+
+    opt_words = set(opt_clean.split()) - STOPWORDS
+    art_words = set(art_clean.split()) - STOPWORDS
+    f6 = len(opt_words & art_words) / (len(opt_words) + 1e-9) if opt_words else 0.0
+
+    return np.array([f0, f1, f2, f3, f4, f5, f6], dtype=np.float32)
+
+
+def _build_feature_vector(article: str, question: str, option: str,
+                           all_options: list = None):
+    """
+    Build the full 5007-feature vector used by the trained models:
+      - 5000 OHE features  (article + question + option combined text)
+      - 7 hand-crafted relationship features
+
+    If the models were trained on only 5000 features (old training run),
+    this function detects that via N_FEATURES_EXPECTED and falls back to
+    OHE-only to avoid the mismatch ValueError.
+    """
+    combined_text = _clean(article) + ' ' + _clean(question) + ' ' + _clean(option)
+    X_ohe = MODELS['vectorizer'].transform([combined_text])   # (1, 5000) sparse
+
+    if all_options is None:
+        all_options = [option]
+
+    hc   = _hand_crafted_features(article, question, option, all_options)
+    X_hc = scipy.sparse.csr_matrix(hc.reshape(1, -1))        # (1, 7) sparse
+
+    if N_FEATURES_EXPECTED == 5000:
+        # Old models: return OHE only to stay compatible
+        return X_ohe
+    else:
+        # New models: stack OHE + hand-crafted
+        return scipy.sparse.hstack([X_ohe, X_hc], format='csr')
 
 
 def _log_inference(record: dict):
@@ -152,12 +252,11 @@ def verify_answer(article: str, question: str, option: str) -> dict:
 
     t_start = time.time()
 
-    combined_text = (
-        _clean(article)  + ' ' +
-        _clean(question) + ' ' +
-        _clean(option)
-    )
-    X = MODELS['vectorizer'].transform([combined_text])
+    # Build the same feature vector used during training.
+    # all_options=None is fine for verification — the position/length
+    # features will be computed relative to this single option only,
+    # which is consistent because the model sees one option at a time.
+    X = _build_feature_vector(article, question, option, all_options=[option])
 
     if MODELS.get('lr') is not None:
         model      = MODELS['lr']
@@ -397,19 +496,12 @@ def _template_generate(article: str) -> dict:
 
         # --- STEP 3: Rank with ML classifier ---
         try:
-            combined_text = (
-                _clean(article) + ' ' +
-                _clean(question_text) + ' ' +
-                _clean(answer_phrase)
-            )
-            v_combined = MODELS['vectorizer'].transform([combined_text])
+            X_rank = _build_feature_vector(article, question_text, answer_phrase,
+                                           all_options=[answer_phrase])
 
             if ranker_model is not None:
-                # predict_proba returns [[prob_wrong, prob_correct]]
-                # We use prob_correct (index 1) as our relevance score
-                ml_score = float(ranker_model.predict_proba(v_combined)[0][1])
+                ml_score = float(ranker_model.predict_proba(X_rank)[0][1])
             else:
-                # No ML ranker available — fall back to OHE overlap score
                 ml_score = ohe_overlap
 
         except Exception as e:
@@ -684,6 +776,12 @@ def get_hints(article: str, question: str) -> list:
         v_q    = MODELS['vectorizer'].transform([question_clean])
         q_words = set(question_clean.split()) - STOPWORDS
 
+        # Detect how many features the hint scorer expects (4 old or 6 new)
+        hint_n_features = getattr(MODELS['hint_scorer'], 'n_features_in_', 6)
+
+        ans_clean = _clean(question)   # approximate: use question as ans proxy if answer unknown
+        ans_words = set(ans_clean.split()) - STOPWORDS
+
         features = []
         for pos, sent in enumerate(sentences):
             v_s      = MODELS['vectorizer'].transform([sent])
@@ -692,7 +790,13 @@ def get_hints(article: str, question: str) -> list:
             jacc_q   = len(q_words & s_words) / (len(q_words | s_words) + 1e-9)
             norm_pos = pos / (len(sentences) - 1 + 1e-9)
             norm_len = min(len(sent.split()) / 40.0, 1.0)
-            features.append([sim_q, jacc_q, norm_pos, norm_len])
+
+            if hint_n_features >= 6:
+                jacc_ans   = len(ans_words & s_words) / (len(ans_words | s_words) + 1e-9) if ans_words else 0.0
+                has_ans_kw = 1.0 if (ans_words and ans_words & s_words) else 0.0
+                features.append([sim_q, jacc_q, norm_pos, norm_len, jacc_ans, has_ans_kw])
+            else:
+                features.append([sim_q, jacc_q, norm_pos, norm_len])
 
         probs  = MODELS['hint_scorer'].predict_proba(np.array(features))[:, 1]
         ranked = sorted(zip(sentences, probs), key=lambda x: x[1], reverse=True)
