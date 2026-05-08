@@ -1,0 +1,4 @@
+metric,score
+BLEU-2,0.0501
+ROUGE-L,0.1514
+METEOR,0.1516
