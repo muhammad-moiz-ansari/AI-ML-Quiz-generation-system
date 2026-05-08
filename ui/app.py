@@ -141,7 +141,7 @@ with st.sidebar:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SCREEN 1 — ARTICLE INPUT
+# SCREEN 1 - ARTICLE INPUT
 # ════════════════════════════════════════════════════════════════════════════
 if page == "1. 📖 Article Input":
     st.title("Step 1: Provide a Reading Passage")
@@ -152,7 +152,7 @@ if page == "1. 📖 Article Input":
     )
 
     # ── Load Random RACE Sample ───────────────────────────────────────────
-    st.markdown("#### Quick Load — RACE Sample Passage")
+    st.markdown("#### Quick Load - RACE Sample Passage")
     sample_cols = st.columns(len(RACE_SAMPLES))
     for i, sample in enumerate(RACE_SAMPLES):
         with sample_cols[i]:
@@ -178,7 +178,7 @@ if page == "1. 📖 Article Input":
     word_count = len(article_text.split()) if article_text.strip() else 0
     st.caption(f"Word count: {word_count}")
 
-    # ── Submit Button — triggers BOTH Model A and Model B ─────────────────
+    # ── Submit Button - triggers BOTH Model A and Model B ─────────────────
     if st.button("🚀 Generate Quiz (Model A + Model B)", type="primary", use_container_width=True):
         if word_count < 20:
             st.error("Passage is too short! Please provide at least 20 words.")
@@ -194,15 +194,17 @@ if page == "1. 📖 Article Input":
                 st.session_state.answer_revealed = False
                 time.sleep(0.8)
 
+            st.markdown("<br>", unsafe_allow_html=True)
+
             st.success(
                 "Quiz generated! "
-                f"Question: *{quiz['question'][:80]}...* — "
+                f"Question: *{quiz['question'][:80]}...* - "
                 "Go to **Take Quiz** to answer."
             )
 
             # Preview the generated question + options on Screen 1
             st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
-            st.markdown("#### Preview — Generated Question")
+            st.markdown("#### Preview - Generated Question")
             st.markdown(f"**{quiz['question']}**")
             for letter, text in quiz['options'].items():
                 marker = " ✅" if letter == quiz['correct_label'] else ""
@@ -212,7 +214,7 @@ if page == "1. 📖 Article Input":
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SCREEN 2 — QUESTION & ANSWER QUIZ VIEW
+# SCREEN 2 - QUESTION & ANSWER QUIZ VIEW
 # ════════════════════════════════════════════════════════════════════════════
 elif page == "2. 🎯 Take Quiz":
     st.title("Step 2: Test Your Comprehension")
@@ -233,7 +235,7 @@ elif page == "2. 🎯 Take Quiz":
             unsafe_allow_html=True
         )
 
-        # ── Options — labeled A / B / C / D ──────────────────────────────
+        # ── Options - labeled A / B / C / D ──────────────────────────────
         st.markdown("**Choose your answer:**")
         options_display = [
             f"{letter}. {text}"
@@ -251,6 +253,8 @@ elif page == "2. 🎯 Take Quiz":
             index=None,
             label_visibility="collapsed"
         )
+
+        st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("Check Answer ⚡", type="primary"):
             if selected_display is None:
@@ -282,8 +286,8 @@ elif page == "2. 🎯 Take Quiz":
                     st.balloons()
                     st.markdown(
                         "<div class='result-correct'>"
-                        "🎉 CORRECT! Well done — your answer matches the passage."
-                        "</div>",
+                        "🎉 CORRECT! Well done - your answer matches the passage."
+                        "</div><br>",
                         unsafe_allow_html=True
                     )
                 else:
@@ -291,7 +295,7 @@ elif page == "2. 🎯 Take Quiz":
                         f"<div class='result-wrong'>"
                         f"❌ INCORRECT. The correct answer was: "
                         f"<strong>{quiz['correct_text']}</strong>"
-                        f"</div>",
+                        f"</div><br>",
                         unsafe_allow_html=True
                     )
                     st.info("Go to the **Hint Explorer** tab to get graduated clues and try again.")
@@ -316,7 +320,7 @@ elif page == "2. 🎯 Take Quiz":
             else:
                 st.markdown(
                     f"<div class='result-wrong'>"
-                    f"Last answer: INCORRECT — correct was "
+                    f"Last answer: INCORRECT - correct was "
                     f"<strong>{quiz['correct_text']}</strong>"
                     f"</div>",
                     unsafe_allow_html=True
@@ -324,7 +328,7 @@ elif page == "2. 🎯 Take Quiz":
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SCREEN 3 — HINT PANEL
+# SCREEN 3 - HINT PANEL
 # ════════════════════════════════════════════════════════════════════════════
 elif page == "3. 💡 Hint Explorer":
     st.title("Step 3: Graduated Hints")
@@ -337,7 +341,7 @@ elif page == "3. 💡 Hint Explorer":
         st.info("Answer the quiz on the **Take Quiz** tab first, then come back for hints.")
 
     elif st.session_state.is_correct:
-        # User was correct — no hints needed
+        # User was correct - no hints needed
         st.markdown(
             "<div class='result-correct'>"
             "You answered correctly! No hints needed. Great work."
@@ -347,17 +351,17 @@ elif page == "3. 💡 Hint Explorer":
         st.markdown(f"**Correct answer:** {st.session_state.quiz_data['correct_text']}")
 
     else:
-        # User was wrong — show graduated hints
+        # User was wrong - show graduated hints
         st.markdown(f"**Your answer:** {st.session_state.last_selected}")
         st.markdown(
-            f"**Correct answer:** *(hidden — use hints to find it)*"
+            f"**Correct answer:** *(hidden - use hints to find it)*"
         )
 
         st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
-        st.markdown("### Model B — Graduated Hints")
+        st.markdown("### Model B - Graduated Hints")
         st.caption(
             "Model B's Hint Scorer has ranked passage sentences by relevance to "
-            "the question. Unlock hints one at a time — Hint 1 is vague, "
+            "the question. Unlock hints one at a time - Hint 1 is vague, "
             "Hint 3 is near-explicit."
         )
 
@@ -373,21 +377,21 @@ elif page == "3. 💡 Hint Explorer":
         hints = st.session_state.cached_hints
 
         # ── Hint 1 ────────────────────────────────────────────────────────
-        with st.expander("💡 Hint 1 — General Context", expanded=(st.session_state.hints_unlocked >= 1)):
+        with st.expander("💡 Hint 1 - General Context", expanded=(st.session_state.hints_unlocked >= 1)):
             if st.session_state.hints_unlocked >= 1:
                 st.info(hints[0])
             else:
                 st.caption("🔒 Click the button below to unlock this hint.")
 
         # ── Hint 2 ────────────────────────────────────────────────────────
-        with st.expander("🔍 Hint 2 — Stronger Clue", expanded=(st.session_state.hints_unlocked >= 2)):
+        with st.expander("🔍 Hint 2 - Stronger Clue", expanded=(st.session_state.hints_unlocked >= 2)):
             if st.session_state.hints_unlocked >= 2:
                 st.warning(hints[1])
             else:
                 st.caption("🔒 Unlock Hint 1 first.")
 
         # ── Hint 3 ────────────────────────────────────────────────────────
-        with st.expander("🎯 Hint 3 — Near-Explicit Extract", expanded=(st.session_state.hints_unlocked >= 3)):
+        with st.expander("🎯 Hint 3 - Near-Explicit Extract", expanded=(st.session_state.hints_unlocked >= 3)):
             if st.session_state.hints_unlocked >= 3:
                 st.error(hints[2])
             else:
@@ -425,7 +429,7 @@ elif page == "3. 💡 Hint Explorer":
             else:
                 st.button("Unlock Hint 3", disabled=True, use_container_width=True)
 
-        # ── Reveal Answer — only after all 3 hints are unlocked ──────────
+        # ── Reveal Answer - only after all 3 hints are unlocked ──────────
         st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
 
         if st.session_state.hints_unlocked < 3:
@@ -446,7 +450,7 @@ elif page == "3. 💡 Hint Explorer":
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SCREEN 4 — DEVELOPER / ANALYTICS DASHBOARD
+# SCREEN 4 - DEVELOPER / ANALYTICS DASHBOARD
 # ════════════════════════════════════════════════════════════════════════════
 elif page == "4. 📊 Analytics Dashboard":
     st.title("Developer Analytics Dashboard")
@@ -479,7 +483,7 @@ elif page == "4. 📊 Analytics Dashboard":
     st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
 
     # ── Row 2: Model A Training Results (from CSV) ────────────────────────
-    st.markdown("### Model A — Training Results (Dev Set)")
+    st.markdown("### Model A - Training Results (Dev Set)")
 
     if "error" not in file_metrics and "model_a_results" in file_metrics:
         df_a = pd.DataFrame(file_metrics["model_a_results"])
@@ -502,7 +506,7 @@ elif page == "4. 📊 Analytics Dashboard":
     st.markdown("<div class='neon-divider'></div>", unsafe_allow_html=True)
 
     # ── Row 3: Model B Training Results (from CSV) ────────────────────────
-    st.markdown("### Model B — Training Results (Distractor & Hint Scorer)")
+    st.markdown("### Model B - Training Results (Distractor & Hint Scorer)")
 
     model_b_results_path = os.path.join(root_dir, "models", "model_b", "traditional", "model_b_results.csv")
     if os.path.exists(model_b_results_path):
@@ -532,10 +536,10 @@ elif page == "4. 📊 Analytics Dashboard":
     plots_dir = os.path.join(root_dir, 'notebooks', 'plots')
 
     plot_files = {
-        'cm_soft-vote_ensemble.png'    : "Model A — Ensemble Confusion Matrix",
-        'model_a_comparison.png'       : "Model A — Supervised Comparison",
-        'model_b_ranker_comparison.png': "Model B — Ranker Comparison",
-        'model_b_distractor_eval.png'  : "Model B — Distractor Pipeline Eval",
+        'cm_logistic_regression.png'   : "Model A - Logistic Regression Confusion Matrix",
+        'model_a_comparison.png'       : "Model A - Supervised Comparison",
+        'model_b_ranker_comparison.png': "Model B - Ranker Comparison",
+        'model_b_distractor_eval.png'  : "Model B - Distractor Pipeline Eval",
     }
 
     plot_cols = st.columns(2)
