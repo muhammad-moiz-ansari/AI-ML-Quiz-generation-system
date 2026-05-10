@@ -1,31 +1,7 @@
 """
-model_b_train.py  (IMPROVED)
+model_b_train.py
 ================
 Model B - Distractor Generator + Hint Generator
-
-Key improvements over baseline:
-  1. DISTRACTOR RANKER - fixed data leakage.
-     Old: negatives were full article sentences (always long) vs. positives
-     that were short RACE options → model learned length, not quality.
-     New: negatives are phrase-length chunks extracted from article sentences
-     (same length distribution as positives), so the model must actually learn
-     distractor quality features.
-
-  2. DISTRACTOR RANKER - added 3 extra features (6 total instead of 4):
-     + keyword overlap between candidate and question (not just answer)
-     + binary flag: does candidate share any word with correct answer?
-     + sentence-level cosine sim between candidate and article centroid
-
-  3. PIPELINE EVALUATION - fixed Precision/Recall/F1 all being 0.
-     Old: compared generated full-sentence distractors to gold short phrases
-     with exact string matching → always 0 overlap.
-     New: uses partial keyword Jaccard overlap (threshold 0.3) so a generated
-     sentence that CONTAINS the gold phrase counts as a hit.
-
-  4. HINT SCORER - added 2 extra features (6 total instead of 4):
-     + keyword overlap between sentence and correct answer (not just question)
-     + binary flag: does the sentence contain any answer keyword?
-     These directly capture "does this sentence reveal the answer?"
 """
 
 import os
@@ -92,7 +68,7 @@ def load_data(split="train"):
 
 def extract_phrase_chunks(text, chunk_size=5):
     """
-    Split text into overlapping phrase-length chunks (similar length to
+    Splits text into overlapping phrase-length chunks (similar length to
     RACE answer options) so negative distractor examples match the
     length distribution of positive examples.
     This is the key fix for the data leakage problem.
@@ -181,7 +157,7 @@ def select_top3_distractors(candidates, correct_answer_text, diversity_threshold
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 2 - ML DISTRACTOR RANKER  (improved features + fixed negatives)
+# SECTION 2 - ML DISTRACTOR RANKER
 # ════════════════════════════════════════════════════════════════════════════
 
 def build_distractor_ranker_dataset(df, vectorizer, max_rows=None):
@@ -196,9 +172,9 @@ def build_distractor_ranker_dataset(df, vectorizer, max_rows=None):
       0  cosine similarity to correct answer
       1  cosine similarity to question
       2  Jaccard keyword overlap with correct answer
-      3  Jaccard keyword overlap with question  [NEW]
+      3  Jaccard keyword overlap with question
       4  normalised candidate length
-      5  binary: candidate shares any keyword with correct answer  [NEW]
+      5  binary: candidate shares any keyword with correct answer
     """
     if max_rows is not None:
         df = df.sample(min(max_rows, len(df)), random_state=42)
@@ -319,7 +295,7 @@ def train_distractor_ranker(X_feat, y_feat):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 3 - HINT SCORER  (improved: 6 features instead of 4)
+# SECTION 3 - HINT SCORER
 # ════════════════════════════════════════════════════════════════════════════
 
 def build_hint_scorer_dataset(df, vectorizer, max_rows=None):
@@ -504,11 +480,7 @@ def evaluate_distractor_pipeline(df, vectorizer, lr_ranker, n_samples=200):
     """
     Evaluate the full distractor pipeline.
 
-    FIX: Old version compared generated distractors to gold distractors
-    with EXACT string matching - always 0 because generated phrases are
-    substrings of sentences, not exact copies of RACE options.
-
-    New version uses PARTIAL keyword Jaccard overlap (threshold 0.3):
+    Uses PARTIAL keyword Jaccard overlap (threshold 0.3):
     a generated distractor counts as a hit if it shares 30% of keywords
     with a gold distractor.  This is the standard approach for evaluating
     open-ended text generation when exact match is too strict.
