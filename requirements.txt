@@ -1,0 +1,16 @@
+# Web Framework
+streamlit==1.35.0
+
+# Machine Learning & Math
+scikit-learn==1.8.0
+pandas
+numpy
+scipy
+
+# Utilities & Visualization
+joblib
+matplotlib
+
+# NLP Metrics
+nltk
+rouge-score
