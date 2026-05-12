@@ -1,7 +1,16 @@
 """
-model_a_train.py
+model_a_train.py  (IMPROVED)
 ================
 Model A - Answer Verifier + Question Generator
+
+Key improvements over baseline:
+  1. Hand-crafted features (keyword overlap, length ratio, position)
+     stacked onto OHE features → richer signal for classifiers.
+  2. SVM C raised from 0.1 → 1.0 so it stops collapsing to majority class.
+  3. NaiveBayes trained with sample_weight to correct 75/25 imbalance.
+  4. Weighted soft-vote ensemble (LR gets 2x weight, best individual model).
+  5. BLEU, ROUGE-L, and METEOR scores added for question generation evaluation
+     as required by instructor note.
 """
 
 import os
@@ -21,7 +30,8 @@ from sklearn.cluster import KMeans
 from sklearn.semi_supervised import LabelPropagation
 from sklearn.ensemble import VotingClassifier
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import (accuracy_score, f1_score, classification_report,
+from sklearn.metrics import (accuracy_score, f1_score,
+                             classification_report,
                              confusion_matrix, silhouette_score)
 from sklearn.utils.class_weight import compute_sample_weight
 
@@ -37,7 +47,7 @@ try:
     nltk.download('punkt_tab',     quiet=True)
     nltk.download('omw-1.4',       quiet=True)
     NLP_METRICS_AVAILABLE = True
-    print("[INFO] NLTK + rouge-score loaded - NLP metrics enabled.")
+    print("[INFO] NLTK + rouge-score loaded — NLP metrics enabled.")
 except ImportError:
     NLP_METRICS_AVAILABLE = False
     print("[WARNING] nltk or rouge-score not installed.")
@@ -92,9 +102,10 @@ def _keyword_overlap(text_a: str, text_b: str) -> float:
 def _hand_crafted_features(article: str, question: str, option: str,
                             all_options: list) -> np.ndarray:
     """
-    Build a small vector of hand-crafted features that capture the RELATIONSHIP between the 
-    article, question, and a candidate option. These features are concatenated onto the OHE 
-    vector to give classifiers a richer signal beyond simple word presence.
+    Build a small vector of hand-crafted features that capture the
+    RELATIONSHIP between the article, question, and a candidate option.
+    These features are concatenated onto the OHE vector to give classifiers
+    a richer signal beyond simple word presence.
 
     Features (7 dimensions):
       0  keyword overlap between option and article
@@ -129,7 +140,7 @@ def _hand_crafted_features(article: str, question: str, option: str,
     except ValueError:
         f4 = 0.0
 
-    # Feature 5: binary - is the exact option text found in the article?
+    # Feature 5: binary — is the exact option text found in the article?
     f5 = 1.0 if opt_clean in art_clean else 0.0
 
     # Feature 6: fraction of option words present in article
@@ -238,12 +249,12 @@ def evaluate(model, X_dev, y_dev, model_name):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  SECTION 1: SUPERVISED MODELS
+#  SECTION 1: SUPERVISED MODELS  (with improved hyperparameters)
 # ════════════════════════════════════════════════════════════════════════════
 
 def train_logistic_regression(X_train, y_train):
     """
-    Logistic Regression - unchanged, already uses class_weight='balanced'.
+    Logistic Regression — unchanged, already uses class_weight='balanced'.
     C=1.0 gives a good bias/variance tradeoff on OHE + hand-crafted features.
     """
     print("\n[1/5] Training Logistic Regression...")
@@ -264,6 +275,11 @@ def train_svm(X_train, y_train):
     """
     Support Vector Machine (LinearSVC + Calibration)
     -------------------------------------------------
+    IMPROVEMENT: C raised from 0.1 to 1.0.
+    With C=0.1 the SVM was over-regularised and collapsed to the majority
+    class (predicting 'Wrong' for everything, giving trivial 75% accuracy).
+    C=1.0 forces it to pay more attention to the minority 'Correct' class.
+    class_weight='balanced' is retained.
     """
     print("\n[2/5] Training SVM (LinearSVC + Calibration)...")
     print("  Note: C raised from 0.1 to 1.0 to fix majority-class collapse.")
@@ -279,6 +295,10 @@ def train_naive_bayes(X_train, y_train):
     """
     Bernoulli Naive Bayes
     ----------------------
+    IMPROVEMENT: BernoulliNB does not support class_weight directly.
+    We pass sample_weight=compute_sample_weight('balanced', y_train)
+    to the fit() call, which achieves the same up-weighting of the
+    minority 'Correct' class.
     """
     print("\n[3/5] Training Bernoulli Naive Bayes (with balanced sample weights)...")
     t0     = time.time()
@@ -294,10 +314,7 @@ def train_naive_bayes(X_train, y_train):
 # ════════════════════════════════════════════════════════════════════════════
 
 def train_kmeans(X_train, y_train):
-    """
-    K-Means Clustering (Unsupervised)
-    ----------------------------------
-    """
+    """K-Means Clustering (Unsupervised)."""
     print("\n[4/5] Training K-Means Clustering (Unsupervised)...")
     print("  Subsampling 20,000 examples for K-Means (memory efficient)...")
 
@@ -335,9 +352,7 @@ def train_kmeans(X_train, y_train):
 # ════════════════════════════════════════════════════════════════════════════
 
 def train_label_propagation(X_train, y_train):
-    """
-    Label Propagation (Semi-Supervised)
-    ------------------------------------"""
+    """Label Propagation (Semi-Supervised)."""
     print("\n[5/5] Training Label Propagation (Semi-Supervised)...")
 
     rng     = np.random.RandomState(42)
@@ -373,7 +388,10 @@ def train_label_propagation(X_train, y_train):
 def train_ensemble(lr_model, svm_model, nb_model, X_train, y_train):
     """
     Soft-Vote Ensemble
-    -------------------
+    ------------------
+    IMPROVEMENT: LR gets weight=2 because it is the only model that
+    reliably predicts both classes (the others tend to collapse to the
+    majority class).  This makes the ensemble lean on the better signal.
     """
     print("\n[ENSEMBLE] Building Weighted Soft-Vote Ensemble (LR x2 + SVM x1 + NB x1)...")
 
@@ -394,9 +412,11 @@ def train_ensemble(lr_model, svm_model, nb_model, X_train, y_train):
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  SECTION 5: NLP GENERATION METRICS
+#  SECTION 5: NLP GENERATION METRICS  (per Instructor's Note)
 #
-#  Evaluated with BLEU, ROUGE, and METEOR
+#  The instructor noted that since question generation is a TEXT GENERATION
+#  task, it should be evaluated with BLEU, ROUGE, and METEOR rather than
+#  classification accuracy.
 #
 #  How it works:
 #  - We take N samples from the dev set that already have RACE gold questions.
@@ -406,8 +426,8 @@ def train_ensemble(lr_model, svm_model, nb_model, X_train, y_train):
 
 def _template_generate_question(article: str, vectorizer, svm_model) -> str:
     """
-    Inline template generator (mirrors inference.py logic) so we can run 
-    NLP evaluation inside the training script without importing inference.py.
+    Inline template generator (mirrors inference.py logic) so we can
+    run NLP evaluation inside the training script without importing inference.py.
     """
     STOP = STOPWORDS
 

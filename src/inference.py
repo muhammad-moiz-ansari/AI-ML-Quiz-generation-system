@@ -2,6 +2,19 @@
 inference.py
 ============
 Unified inference API for Model A and Model B.
+
+This is the ONLY file your Streamlit app needs to import.
+It loads all trained models once at startup and exposes
+clean functions for the UI to call.
+
+Example:
+    result = verify_answer(
+        article  = "Pandas eat bamboo...",
+        question = "What do pandas eat?",
+        option   = "Bamboo"
+    )
+    print(result)
+    # {"correct": True, "confidence": 0.87, "latency_ms": 45, "model_used": "Ensemble"}
 """
 
 import os
@@ -32,7 +45,7 @@ SESSION_LOG = []
 def _load_models():
     """
     Load all saved models and the vectorizer into memory.
-    Using a dictionary so we can easily check what's available.
+    Uses a dictionary so we can easily check what's available.
     """
     models = {}
 
@@ -83,7 +96,8 @@ MODELS = _load_models()
 print("[inference] All available models ready.\n")
 
 # ── Detect how many features the saved models expect ─────────────────────────
-# (trained with _hand_crafted_features): 5007
+# Old models (trained before hand-crafted features): 5000
+# New models (trained with _hand_crafted_features): 5007
 def _detect_n_features():
     for key in ('lr', 'svm', 'nb', 'ensemble'):
         m = MODELS.get(key)
@@ -144,6 +158,10 @@ def _keyword_overlap(text_a: str, text_b: str) -> float:
 def _hand_crafted_features(article: str, question: str, option: str,
                             all_options: list) -> np.ndarray:
     """
+    Build the same 7 hand-crafted features used during training.
+    MUST match model_a_train.py _hand_crafted_features() exactly,
+    otherwise the saved models receive the wrong number of features.
+
     Features (7 dimensions):
       0  keyword overlap between option and article
       1  keyword overlap between option and question
@@ -185,6 +203,10 @@ def _build_feature_vector(article: str, question: str, option: str,
     Build the full 5007-feature vector used by the trained models:
       - 5000 OHE features  (article + question + option combined text)
       - 7 hand-crafted relationship features
+
+    If the models were trained on only 5000 features (old training run),
+    this function detects that via N_FEATURES_EXPECTED and falls back to
+    OHE-only to avoid the mismatch ValueError.
     """
     combined_text = _clean(article) + ' ' + _clean(question) + ' ' + _clean(option)
     X_ohe = MODELS['vectorizer'].transform([combined_text])   # (1, 5000) sparse
@@ -231,7 +253,7 @@ def verify_answer(article: str, question: str, option: str) -> dict:
     t_start = time.time()
 
     # Build the same feature vector used during training.
-    # all_options=None is fine for verification - the position/length
+    # all_options=None is fine for verification — the position/length
     # features will be computed relative to this single option only,
     # which is consistent because the model sees one option at a time.
     X = _build_feature_vector(article, question, option, all_options=[option])
@@ -321,23 +343,25 @@ def generate_question(article: str, gold_question: str = None,
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  CORE: TEMPLATE-BASED QUESTION GENERATION
+#  CORE: TEMPLATE-BASED QUESTION GENERATION  (Rubric Section 4.2.3)
 #
-#  Step 1 - Extract candidate sentences using One-Hot keyword overlap with the correct answer phrase.
-#  Step 2 - Apply Wh-word templates to transform each sentence into a question.
-#  Step 3 - Rank all generated questions using the trained SVM (or LR) as an ML scoring model and
-#           pick the highest-scoring one.
+#  Step 1 — Extract candidate sentences using One-Hot keyword overlap
+#            with the correct answer phrase.
+#  Step 2 — Apply Wh-word templates to transform each sentence into a question.
+#  Step 3 — Rank all generated questions using the trained SVM (or LR)
+#            as an ML scoring model and pick the highest-scoring one.
 # ════════════════════════════════════════════════════════════════════════════
 
 def _pick_answer_phrase(sentence: str) -> str:
     """
     Choose the ANSWER PHRASE from a sentence.
 
-    Strategy: Find the longest noun-phrase-like chunk (consecutive non-stopword tokens) in the sentence.  
-    This tends to be a meaningful entity or fact rather than a stopword-heavy fragment.
+    Strategy: Find the longest noun-phrase-like chunk (consecutive
+    non-stopword tokens) in the sentence.  This tends to be a meaningful
+    entity or fact rather than a stopword-heavy fragment.
 
-    Returns the raw (un-cleaned) answer text so it matches the original sentence for the 
-    blank-substitution step.
+    Returns the raw (un-cleaned) answer text so it matches the original
+    sentence for the blank-substitution step.
     """
     tokens = sentence.split()
     best_chunk = []
@@ -393,7 +417,7 @@ def _apply_wh_template(sentence: str, answer_phrase: str) -> str:
     q_body  = pattern.sub("_____", sentence, count=1)
 
     if "_____" not in q_body:
-        # The phrase was not found verbatim - skip this candidate
+        # The phrase was not found verbatim — skip this candidate
         return ""
 
     # Strip leading articles/lowercase words that look odd after Wh-word
@@ -413,16 +437,16 @@ def _apply_wh_template(sentence: str, answer_phrase: str) -> str:
 
 def _template_generate(article: str) -> dict:
     """
-    Full question-generation pipeline
+    Full question-generation pipeline following Rubric 4.2.3.
 
-    Step 1 - Score every sentence by its One-Hot keyword overlap with its own
+    Step 1 — Score every sentence by its One-Hot keyword overlap with its own
              answer phrase (used as the candidate-selection criterion).
-    Step 2 - Apply Wh-word templates to produce a candidate question per
+    Step 2 — Apply Wh-word templates to produce a candidate question per
              sentence.
-    Step 3 - Rank all valid candidates with the trained SVM/LR ML ranker
+    Step 3 — Rank all valid candidates with the trained SVM/LR ML ranker
              (predict_proba score) and pick the best one.
-    Then   - Build 3 distractors using cosine similarity on OHE vectors
-             (sentences at medium similarity to the answer phrase).
+    Then    — Build 3 distractors using cosine similarity on OHE vectors
+              (sentences at medium similarity to the answer phrase).
     """
     from sklearn.metrics.pairwise import cosine_similarity
 
@@ -456,14 +480,14 @@ def _template_generate(article: str) -> dict:
             ohe_overlap = 0.0
 
         # Skip sentences where the answer phrase has zero overlap with OHE vocab
-        # (the phrase is completely out-of-vocabulary - won't produce a good question)
+        # (the phrase is completely out-of-vocabulary — won't produce a good question)
         if ohe_overlap == 0.0:
             continue
 
         # --- STEP 2: Apply Wh-word template ---
         question_text = _apply_wh_template(sent, answer_phrase)
         if not question_text:
-            # Template substitution failed for this sentence - skip
+            # Template substitution failed for this sentence — skip
             continue
 
         # Truncate to a readable length
@@ -543,7 +567,7 @@ def _generate_distractors(sentences: list, answer_phrase: str) -> list:
     Generate exactly 3 distractors using One-Hot Encoded cosine similarity.
 
     Selects sentences whose similarity to the answer phrase is in the
-    'medium' range (~0.15-0.40): plausible but not the actual answer.
+    'medium' range (~0.15–0.40): plausible but not the actual answer.
     Extracts a clean, answer-length phrase from each distractor sentence
     so the options look uniform on the quiz screen.
     """
@@ -631,6 +655,9 @@ def _extract_phrase_from_sentence(sentence: str, target_length: int = 3) -> str:
     """
     Extract a meaningful noun-phrase-like chunk from a sentence that is
     approximately target_length words long.
+
+    This is the same logic as _pick_answer_phrase but respects target_length
+    so distractor options look similar in length to the correct answer.
     """
     tokens = sentence.split()
     chunks = []
